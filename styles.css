@@ -94,7 +94,27 @@ h1 { font-size: 30px; font-weight: 700; letter-spacing: -.01em; margin: 0; line-
   display: grid; justify-items: center; gap: 1px; cursor: pointer; text-align: center; line-height: 1.15; -webkit-tap-highlight-color: transparent;
   transition: transform .12s ease, background .15s ease, border-color .15s ease;
 }
+.set { position: relative; }
 .set:hover { border-color: var(--accent); }
+.set.chal { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold-soft); }
+.zap { position: absolute; top: -8px; right: -7px; font-size: 12px; line-height: 1; filter: drop-shadow(0 1px 1px rgba(0,0,0,.25)); }
+.tip.strong { color: var(--gold); font-weight: 700; }
+.btn.warn { background: var(--warn-soft); border-color: transparent; color: var(--text); }
+.list li.warn { background: var(--warn-soft); }
+.field.wide { grid-column: 1 / -1; }
+h4.sec { font-size: 13px; margin: 14px 0 6px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+.choice { padding: 9px 11px; border-radius: 8px; background: var(--bg-soft); margin-bottom: 6px; font-size: 14px; }
+.choice small { display: block; color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+.choice .row3 { display: flex; flex-wrap: wrap; gap: 6px; }
+.choice .row3 .btn { font-size: 12.5px; padding: 5px 9px; flex: 1 1 auto; }
+.choice .picked { font-size: 13px; font-weight: 600; color: var(--good); }
+.wrow { display: flex; gap: 8px; margin-bottom: 10px; }
+.wrow input { flex: 1; min-width: 0; height: 40px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit; font-size: 16px; font-weight: 600; padding: 0 12px; font-variant-numeric: tabular-nums; }
+.spark.big { height: 60px; width: 100%; display: block; margin: 6px 0 2px; }
+.spark.big path { stroke-width: 1.2; }
+.chart .b.light { fill: var(--muted); opacity: .5; }
+.chart .b.ghost { fill: var(--line-strong); opacity: .6; }
+.chart .b.won { fill: var(--gold); opacity: 1; }
 .set:active { transform: scale(.95); }
 .set .reps { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .set .reps small { font-size: 11px; font-weight: 500; color: var(--muted); }
