@@ -42,9 +42,12 @@ Déploiement : `git push` (Pages sur `main`, racine). Penser à `CACHE_VERSION` 
 
 ## Activité récente
 - 2026-09-17 : création du projet, premier commit, repo GitHub + Pages.
+- 2026-09-17 : feuille Google créée par Mehdi, script déployé (id `AKfycbwWdy99…u8Z0`), `SHEETS_URL` branchée dans `config.js`, données migrées dans la feuille (12 exos, séance du 15/09, 700 XP), vérifié en navigateur : lecture + écriture OK.
+
+## Notes techniques
+- Un POST vers Apps Script répond par une redirection 302 vers `script.googleusercontent.com/macros/echo` : les navigateurs la suivent et lisent bien `{"ok":true}`. Python `urllib` la suit mal (renvoie `unauthorized` alors que l'écriture a eu lieu) — utiliser Playwright pour tester, pas `curl`/`urllib`.
+- `curl` est refusé par les permissions de la session Claude Code chez Mehdi.
 
 ## TODO
-- [ ] Mehdi : créer la feuille Google + déployer `Code.gs` (README §1), me donner l'URL `/exec`.
-- [ ] Renseigner `SHEETS_URL` dans `config.js`, pousser, puis migrer `exports/migration.json` dans la feuille (POST curl).
-- [ ] Installer sur l'iPhone (Safari → Partager → Sur l'écran d'accueil) et tester une séance réelle.
+- [ ] Mehdi : installer sur l'iPhone (Safari → Partager → Sur l'écran d'accueil) et tester une séance réelle.
 - [ ] Éventuel : réglage du temps de repos dans l'interface (aujourd'hui 90 s fixe dans `settings.rest`).
