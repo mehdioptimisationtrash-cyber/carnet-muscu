@@ -75,6 +75,15 @@
   const updExo = (id, fn) => ({ ...state, exos: state.exos.map(e => e.id === id ? fn(e) : e) });
   const targetsOf = (e) => (state.session?.targets?.[e.id]) || e.sets;
 
+  /* ---------- crans de charge : pile de plaques (machine) ou pas fixe (haltères) ---------- */
+  const hasStack = (e) => Array.isArray(e.stack) && e.stack.length > 1;
+  const nextCharge = (e, c) => typeof c !== 'number' ? null : hasStack(e) ? (e.stack.find(v => v > c + 0.01) ?? null) : round1(c + e.step);
+  const prevCharge = (e, c) => typeof c !== 'number' ? null : hasStack(e) ? ([...e.stack].reverse().find(v => v < c - 0.01) ?? null) : (c - e.step >= 0 ? round1(c - e.step) : null);
+  const upLabel = (e, c) => { const n = nextCharge(e, c); return n === null ? 'haut de la pile' : `+${round1(n - c)} kg`; };
+  const downLabel = (e) => hasStack(e) ? 'une plaque' : `${e.step} kg`;
+  // « 9, 16, 23 » ou « 12,5 » (virgule décimale = un seul chiffre après, collé)
+  const parseStack = (txt) => [...new Set(String(txt).replace(/(\d),(\d)(?!\d)/g, '$1.$2').split(/[^\d.]+/).map(Number).filter(v => v > 0 && v < 1000))].sort((a, b) => a - b);
+
   /* ---------- progression, défis & gamification ---------- */
   const level = (xp) => Math.floor(Math.sqrt(xp / 150)) + 1;
   const xpForLevel = (l) => 150 * (l - 1) ** 2;
@@ -112,10 +121,12 @@
     if (isTemps(e)) return r.reps >= target.reps ? { charge: 'PDC', reps: Math.min(r.reps + 5, e.repMax), fails: 0 } : { ...base, fails: base.fails + 1 };
     if (r.reps < target.reps) {                                                // ratée
       const fails = base.fails + 1;
-      if (state.settings.autoDeload && fails >= 2 && typeof r.charge === 'number' && r.charge - e.step >= 0) return { charge: round1(r.charge - e.step), reps: target.reps, fails: 0, deload: true };
+      const down = prevCharge(e, r.charge);
+      if (state.settings.autoDeload && fails >= 2 && down !== null) return { charge: down, reps: target.reps, fails: 0, deload: true };
       return { charge: r.charge, reps: target.reps, fails };
     }
-    if (r.reps >= e.repMax && r.charge !== 'PDC') return { charge: round1(r.charge + e.step), reps: e.repMin, fails: 0, up: true }; // palier
+    const up = nextCharge(e, r.charge);
+    if (r.reps >= e.repMax && up !== null) return { charge: up, reps: e.repMin, fails: 0, up: true }; // palier : plaque suivante
     return { charge: r.charge, reps: Math.min(r.reps + 1, e.repMax), fails: 0 };
   }
   function tipFor(e) {
@@ -124,7 +135,8 @@
     if (isTemps(e)) return `Tiens ${e.repMax} s pour valider le palier`;
     if (e.sets.some(s => (s.fails || 0) >= 1)) return 'Défi raté la dernière fois — même cible, on retente';
     if (e.sets.every(s => s.charge === 'PDC') && e.sets.every(s => s.reps >= e.repMax)) return 'Au max en poids du corps : ajoute du lest ou une série';
-    if (e.stalled >= 2) return `Stagne depuis ${e.stalled} séances — essaie −${e.step} kg et remonte`;
+    if (hasStack(e) && e.sets.some(s => typeof s.charge === 'number' && nextCharge(e, s.charge) === null && s.reps >= e.repMax)) return 'Haut de la pile : monte le palier à 20 reps ou ajoute une série';
+    if (e.stalled >= 2) return `Stagne depuis ${e.stalled} séances — essaie ${downLabel(e)} de moins et remonte`;
     if (!e.last) return 'Première fois : fixe ta base, le défi arrive la fois suivante';
     return 'Réussis tout → +1 rep sur chaque série la prochaine fois';
   }
@@ -232,9 +244,9 @@
   }
   const closeSheet = () => $('#overlay').replaceChildren();
   const chargeOptions = (e, cur) => {
-    const base = typeof cur === 'number' ? cur : 0;
     const vals = new Set(['PDC']);
-    for (let k = -12; k <= 12; k++) { const v = round1(base + k * e.step); if (v >= 0) vals.add(v); }
+    if (hasStack(e)) e.stack.forEach(v => vals.add(v));
+    else { const base = typeof cur === 'number' ? cur : 0; for (let k = -12; k <= 12; k++) { const v = round1(base + k * e.step); if (v >= 0) vals.add(v); } }
     if (typeof cur === 'number') vals.add(cur);
     return [...vals].sort((a, b) => a === 'PDC' ? -1 : b === 'PDC' ? 1 : a - b);
   };
@@ -266,8 +278,8 @@
         el('button', { class: 'btn good big', type: 'button', text: `✓ Réussie (${fmtReps(e, t.reps)}${isTemps(e) ? '' : ' à ' + fmtKg(t.charge)})`, onclick: () => logSet(exoId, i, { ...t, done: true }) }),
         el('button', { class: 'btn primary', type: 'button', text: 'Valider ces valeurs', onclick: () => logSet(exoId, i, { ...read(), done: true }) }),
       );
-      if (!isTemps(e) && typeof t.charge === 'number' && remaining && t.charge - e.step >= 0) actions.append(
-        el('button', { class: 'btn warn', type: 'button', text: `Trop lourd : valider et alléger la suite (−${e.step} kg)`, onclick: () => logSet(exoId, i, { ...read(), done: true }, e.step) }));
+      if (!isTemps(e) && typeof t.charge === 'number' && remaining && prevCharge(e, t.charge) !== null) actions.append(
+        el('button', { class: 'btn warn', type: 'button', text: `Trop lourd : valider et alléger la suite (→ ${fmtKg(prevCharge(e, t.charge))})`, onclick: () => logSet(exoId, i, { ...read(), done: true }, true) }));
       actions.append(el('button', { class: 'btn ghost', type: 'button', text: 'Pas faite', onclick: () => logSet(exoId, i, { ...t, done: false }) }));
     } else {
       actions.append(
@@ -280,14 +292,14 @@
       : `Cible pour la prochaine séance · palier à ${fmtReps(e, e.repMax)}${(t.fails || 0) ? ` · ratée ${t.fails}× de suite` : ''}`;
     openSheet(el('h3', { text: `${e.name} — série ${i + 1}` }), el('div', { class: 'sub', text: sub }), fields, actions);
   }
-  function logSet(exoId, i, r, deloadRest = 0) {
+  function logSet(exoId, i, r, deloadRest = false) {
     const s = state.session;
     const results = { ...s.results, [exoId]: s.results[exoId].map((x, k) => k === i ? r : x) };
     let targets = s.targets || {};
     if (deloadRest) {
       const e = state.exos.find(x => x.id === exoId);
       const T = targetsOf(e);
-      targets = { ...targets, [exoId]: T.map((t, k) => k > i && results[exoId][k].done === null && typeof t.charge === 'number' ? { ...t, charge: Math.max(0, round1(t.charge - deloadRest)) } : t) };
+      targets = { ...targets, [exoId]: T.map((t, k) => k > i && results[exoId][k].done === null && prevCharge(e, t.charge) !== null ? { ...t, charge: prevCharge(e, t.charge) } : t) };
     }
     commit({ ...state, session: { ...s, results, targets } });
     closeSheet();
@@ -300,18 +312,30 @@
     const upd = (fn) => { commit(updExo(exoId, fn)); closeSheet(); };
     const selMin = selectEl('mMin', isTemps(e) ? [10, 15, 20, 30, 45, 60] : [5, 6, 8, 10, 12], e.repMin, (o) => isTemps(e) ? `${o} s` : `${o} reps`);
     const selMax = selectEl('mMax', isTemps(e) ? [45, 60, 90, 120, 180] : [10, 12, 15, 20], e.repMax, (o) => isTemps(e) ? `${o} s` : `${o} reps`);
-    const selStep = selectEl('mStep', [0.5, 1, 2, 2.5, 5, 10], e.step, (o) => `+${o} kg`);
+    const selStep = selectEl('mStep', [0.5, 1, 2, 2.5, 3, 4, 5, 7, 10], e.step, (o) => `+${o} kg`);
     const selMode = selectEl('mMode', ['reps', 'temps'], e.mode, (o) => o === 'reps' ? 'Répétitions' : 'Temps (secondes)');
+    const inStack = el('input', { type: 'text', id: 'mStack', inputmode: 'decimal', placeholder: 'ex. 9, 16, 23, 30, 36, 43, 50', value: hasStack(e) ? e.stack.join(', ') : '', 'aria-label': 'Plaques de la machine' });
+    const stackHint = el('p', { class: 'hint' });
+    const refreshHint = () => {
+      const st = parseStack(inStack.value);
+      if (st.length < 2) { stackHint.textContent = 'Machine à pile de plaques : tape les valeurs gravées, dans l’ordre. Vide = haltères/barre, on utilise le cran ci-dessus.'; return; }
+      const c = e.sets.find(s => typeof s.charge === 'number')?.charge;
+      const n = c !== undefined ? st.find(v => v > c + 0.01) : undefined;
+      const pct = c && n ? Math.round((n - c) / c * 100) : null;
+      stackHint.textContent = `${st.length} plaques (${st[0]} → ${st.at(-1)} kg)` + (pct !== null ? ` · prochain cran : ${c} → ${n} kg (+${pct} %)` + (pct > 10 ? ' — gros saut : mets le palier à 20 reps' : '') : n === undefined && c ? ` · ${c} kg est en haut de la pile` : '');
+    };
+    inStack.addEventListener('input', refreshHint); refreshHint();
     openSheet(
       el('h3', { text: e.name }),
       el('div', { class: 'sub', text: 'Réglages de progression' }),
       el('div', { class: 'fields' },
         el('div', { class: 'field' }, el('label', { for: 'mMin', text: 'Reps de départ (après palier)' }), selMin),
         el('div', { class: 'field' }, el('label', { for: 'mMax', text: 'Reps du palier' }), selMax),
-        el('div', { class: 'field' }, el('label', { for: 'mStep', text: 'Cran de charge' }), selStep),
-        el('div', { class: 'field' }, el('label', { for: 'mMode', text: 'Type' }), selMode)),
+        el('div', { class: 'field' }, el('label', { for: 'mStep', text: 'Cran (haltères / barre)' }), selStep),
+        el('div', { class: 'field' }, el('label', { for: 'mMode', text: 'Type' }), selMode),
+        el('div', { class: 'field wide' }, el('label', { for: 'mStack', text: 'Plaques de la machine (kg, séparées par des virgules)' }), inStack, stackHint)),
       el('div', { class: 'menu' },
-        el('button', { class: 'btn primary', type: 'button', text: 'Enregistrer les réglages', onclick: () => upd(x => ({ ...x, repMin: Number(selMin.value), repMax: Math.max(Number(selMin.value) + 1, Number(selMax.value)), step: Number(selStep.value), mode: selMode.value })) }),
+        el('button', { class: 'btn primary', type: 'button', text: 'Enregistrer les réglages', onclick: () => { const st = parseStack(inStack.value); upd(x => ({ ...x, repMin: Number(selMin.value), repMax: Math.max(Number(selMin.value) + 1, Number(selMax.value)), step: Number(selStep.value), mode: selMode.value, stack: st.length > 1 ? st : undefined })); } }),
         el('div', { class: 'row2' },
           el('button', { class: 'btn', type: 'button', text: '+ une série', onclick: () => upd(x => ({ ...x, sets: [...x.sets, { ...(x.sets.at(-1) || { charge: 'PDC', reps: x.repMin }), fails: 0 }] })) }),
           el('button', { class: 'btn', type: 'button', text: '− dernière série', onclick: () => upd(x => ({ ...x, sets: x.sets.slice(0, -1) })) })),
@@ -371,8 +395,8 @@
       el('p', { class: 'hint', style: 'margin-top:8px', text: 'Séance légère = fatigue, peu de sommeil, grosse journée : charges −10 %, aucun défi, cibles inchangées, XP ÷ 2. On maintient, on ne casse pas la série.' }));
   });
   function startSession(light) {
-    // légère : −10 % arrondi au cran, et au minimum un cran de moins
-    const lighten = (e, c) => Math.max(0, Math.min(roundStep(c * LIGHT_FACTOR, e.step), round1(c - e.step)));
+    // légère : −10 % arrondi au cran, et au minimum un cran de moins ; sur une pile de plaques : la plaque du dessous
+    const lighten = (e, c) => hasStack(e) ? (prevCharge(e, c) ?? c) : Math.max(0, Math.min(roundStep(c * LIGHT_FACTOR, e.step), round1(c - e.step)));
     const targets = Object.fromEntries(state.exos.map(e => [e.id, e.sets.map(t => light && typeof t.charge === 'number' && t.charge > 0 ? { ...t, charge: lighten(e, t.charge) } : { ...t })]));
     const results = Object.fromEntries(state.exos.map(e => [e.id, targets[e.id].map(t => ({ charge: t.charge, reps: t.reps, done: null }))]));
     commit({ ...state, session: { startedAt: Date.now(), results, targets, light } });
@@ -433,7 +457,7 @@
       const fmtSets = (arr) => arr.map(t => `${t.reps}${isTemps(e) ? 's' : '×' + fmtKg(t.charge)}`).join(' · ');
       const before = fmtSets(e.sets), after = fmtSets(next);
       if (before !== after) changes.push({ name: e.name, before, after, up: next.some(n => n.up), deload: next.some(n => n.deload) });
-      if (failedIdx.length) failed.push({ id: e.id, name: e.name, idx: failedIdx, res, T, retry: next.map(({ up, deload, ...t }) => t), auto: next.some(n => n.deload), step: e.step, temps: isTemps(e) });
+      if (failedIdx.length) failed.push({ id: e.id, name: e.name, idx: failedIdx, res, T, retry: next.map(({ up, deload, ...t }) => t), auto: next.some(n => n.deload), down: downLabel(e), prev: (c) => prevCharge(e, c), temps: isTemps(e) });
       exosLog[e.id] = { name: e.name, sets: res };
       const done = res.some(r => r.done);
       if (light) return { ...e };
@@ -464,12 +488,12 @@
       adj.append(el('h4', { class: 'sec', text: 'Défis ratés — que fait-on la prochaine fois ?' }));
       for (const f of failed) {
         const detail = f.idx.map(i => `S${i + 1} ${f.res[i].reps}/${f.T[i].reps}`).join(', ');
-        const block = el('div', { class: 'choice' }, el('b', { text: f.name }), el('small', { text: `${detail}${f.auto ? ' · recalibrage automatique appliqué (−' + f.step + ' kg)' : ''}` }));
+        const block = el('div', { class: 'choice' }, el('b', { text: f.name }), el('small', { text: `${detail}${f.auto ? ' · recalibrage automatique appliqué (' + f.down + ' de moins)' : ''}` }));
         const row = el('div', { class: 'row3' });
         const pick = (label, fn) => el('button', { class: 'btn', type: 'button', text: label, onclick: () => { commit(updExo(f.id, x => ({ ...x, sets: fn(x) }))); row.replaceChildren(el('span', { class: 'picked', text: `✓ ${label}` })); } });
         row.append(
           pick(f.auto ? 'Non, je retente à la même charge' : 'Retenter (même cible)', (x) => f.auto ? f.T.map((t, i) => ({ charge: t.charge, reps: t.reps, fails: f.idx.includes(i) ? (t.fails || 0) + 1 : 0 })) : f.retry),
-          ...(f.temps ? [] : [pick(`Alléger −${f.step} kg`, (x) => f.T.map(t => ({ charge: typeof t.charge === 'number' ? Math.max(0, round1(t.charge - f.step)) : t.charge, reps: t.reps, fails: 0 })))]),
+          ...(f.temps ? [] : [pick(`Alléger d’${f.down === 'une plaque' ? 'une plaque' : 'un cran (−' + f.down + ')'}`, (x) => f.T.map(t => ({ charge: f.prev(t.charge) ?? t.charge, reps: t.reps, fails: 0 })))]),
           pick('Garder ce que j’ai fait', (x) => f.T.map((t, i) => f.res[i].done ? { charge: f.res[i].charge, reps: f.res[i].reps, fails: 0 } : { charge: t.charge, reps: t.reps, fails: 0 })),
         );
         block.append(row); adj.append(block);
@@ -625,9 +649,12 @@
     const stalled = state.exos.filter(e => e.stalled >= 2);
     if (stalled.length >= 3) out.append(ax('warn', 'Semaine de décharge conseillée', `${stalled.length} exercices stagnent (${stalled.map(e => e.name).join(', ')}). Fais une semaine de séances légères (−10 %) : la fatigue accumulée retombe, les défis repassent ensuite.`));
     for (const e of state.exos) {
-      if (e.stalled >= 2 && stalled.length < 3) out.append(ax('warn', `${e.name} stagne depuis ${e.stalled} séances`, `Essaie −${e.step} kg avec ${e.repMax} reps propres, puis remonte. Ou place-le plus tôt dans la séance.`));
+      if (e.stalled >= 2 && stalled.length < 3) out.append(ax('warn', `${e.name} stagne depuis ${e.stalled} séances`, `Essaie ${downLabel(e)} de moins avec ${e.repMax} reps propres, puis remonte. Ou place-le plus tôt dans la séance.`));
       const p = exoProgress(e);
-      if (!isTemps(e) && p >= .75 && e.stalled < 2) out.append(ax('good', `${e.name} : palier proche`, `Tu es à ${Math.round((1 - p) * (e.repMax - e.repMin))} rep en moyenne du passage à +${e.step} kg.`));
+      const c0 = e.sets.find(s => typeof s.charge === 'number')?.charge;
+      if (!isTemps(e) && p >= .75 && e.stalled < 2) out.append(ax('good', `${e.name} : palier proche`, `Tu es à ${Math.round((1 - p) * (e.repMax - e.repMin))} rep en moyenne du passage à la charge suivante${c0 !== undefined ? ' (' + upLabel(e, c0) + ')' : ''}.`));
+      const jump = c0 !== undefined && nextCharge(e, c0) !== null ? (nextCharge(e, c0) - c0) / c0 : 0;
+      if (hasStack(e) && jump > .10 && e.repMax < 20) out.append(ax('', `${e.name} : plaque suivante = +${Math.round(jump * 100)} %`, `Gros saut pour une machine. Mets le palier à 20 reps (⋯ → Reps du palier) : tu accumules plus de reps avant de monter, et la progression série par série lisse le passage.`));
       const skipped = e.last ? e.last.filter(r => !r.done).length : 0;
       if (skipped && skipped < e.last.length) out.append(ax('', `${e.name} : ${plural(skipped, 'série')} sautée${skipped > 1 ? 's' : ''} la dernière fois`, 'Si c’est récurrent, réduis d’une série plutôt que de sauter — la cible reste atteignable.'));
     }

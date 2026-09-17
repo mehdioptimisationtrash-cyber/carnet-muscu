@@ -34,6 +34,7 @@ Carnet de musculation personnel de Mehdi, en PWA installable sur iPhone, sauvega
 - **Séance légère** : charges −10 % arrondies au cran (min. −1 cran), aucun défi, cibles et `last` inchangés, XP ÷ 2, entrée d'historique `light`.
 - **Poids corporel** (onglet Stats) : moyenne 7 j, rythme %/semaine avec message (idéal −0,5 à −1 %/sem ; Mehdi 187 cm / 112 kg en recomposition).
 - Objectif séances/semaine (chip 📅 x/y), repos réglable, semaine de décharge conseillée si ≥ 3 exos stagnent.
+- **Pile de plaques** (`exo.stack: number[]`, saisie dans ⋯ → « Plaques de la machine ») : les machines de la salle sont de vieilles Technogym, les crans ne sont pas de 2 kg. Si `stack` existe : options de charge = plaques, palier = plaque suivante (`nextCharge`), allègement/recalibrage/séance légère = plaque précédente (`prevCharge`). Sinon `step` (haltères/barre). Si la plaque suivante > +10 %, conseil « palier à 20 reps ».
 
 ## Comment lancer
 ```bash

@@ -68,6 +68,12 @@ with sync_playwright() as p:
     s3 = finish(pg); pg.click(".summary .actions .btn"); synced(pg)
     sets_after_light = pg.locator(".exo >> nth=0 >> .set .ch").all_text_contents()
 
+    # pile de plaques (machine) : options de charge = plaques, palier = plaque suivante
+    pg.click(".exo >> nth=0 >> .exo-menu"); pg.fill("#mStack", "9, 16, 23, 30, 36, 43, 50"); hint = pg.text_content(".field.wide .hint")
+    pg.click("text=Enregistrer les réglages"); synced(pg)
+    pg.click(".exo >> nth=0 >> .set >> nth=0"); opts = pg.locator("#fC option").all_text_contents(); pg.click(".veil", position={"x": 5, "y": 5})
+    tip_stack = pg.text_content(".exo >> nth=0 >> .tip")
+
     # réglages + poids
     pg.click("#btnSettings"); pg.select_option("#gRest", "120"); pg.select_option("#gGoal", "4"); pg.click("text=Enregistrer"); synced(pg)
     chip = pg.locator(".chips-top .chip").first.text_content()
@@ -87,6 +93,7 @@ print("S2 : cible S3 après allègement :", s3_target, "|", s2["xp"], "| choix p
 print("     items :", s2["items"])
 print("     cibles après 'garder' :", sets_after)
 print("S3 légère : charge affichée :", light_charge, "|", s3["xp"], "| cibles après :", sets_after_light)
+print("pile : hint :", hint, "| options charge :", opts, "| tip :", tip_stack)
 print("réglages → chip :", chip, "| poids tuiles :", weight_tiles)
 print("axes :", axes)
 print("après vidage cache :", back)
