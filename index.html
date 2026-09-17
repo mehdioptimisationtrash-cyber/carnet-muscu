@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Carnet Muscu</title>
+<meta name="description" content="Carnet de musculation : progression par série, XP, records et stats.">
+<meta name="theme-color" content="#6940A5">
+<link rel="manifest" href="./manifest.webmanifest">
+<!-- Intégration iOS (écran d'accueil) -->
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Muscu">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="./icons/icon-192.png">
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<main class="page">
+  <div class="top">
+    <div class="icon">🏋️</div>
+    <div>
+      <h1>Carnet Muscu</h1>
+      <div class="sub" id="sub">—</div>
+    </div>
+  </div>
+
+  <div class="level">
+    <div class="level-badge" id="lvlNum">1</div>
+    <div class="level-title"><span id="lvlTitle">Rookie</span><small id="lvlNext"></small></div>
+    <div class="level-right"><b id="xpNow">0</b> XP</div>
+    <div class="bar"><i id="xpBar"></i></div>
+  </div>
+  <div class="chips-top" id="chipsTop"></div>
+
+  <div class="save" id="save">
+    <span class="status" id="status" data-state="">Chargement…</span>
+    <button class="btn" id="btnExport" type="button">Exporter</button>
+    <label class="btn" for="fileImport">Importer</label>
+    <input type="file" id="fileImport" accept="application/json,.json" hidden>
+    <p class="hint" id="hint"></p>
+  </div>
+
+  <div class="tabs" role="tablist">
+    <button class="tab" id="tabSeance" role="tab" aria-selected="true" type="button">Séance</button>
+    <button class="tab" id="tabStats" role="tab" aria-selected="false" type="button">Stats</button>
+  </div>
+
+  <section id="viewSeance">
+    <div class="session-head">
+      <div><h2 id="sessionTitle">Prochaine séance</h2><div class="meta" id="sessionMeta"></div></div>
+      <button class="btn primary big" id="btnStart" type="button">Démarrer la séance</button>
+    </div>
+    <div id="exos"></div>
+    <div class="add"><span>+</span><input id="addExo" placeholder="Nouvel exercice… (Entrée pour ajouter)" enterkeyhint="done"></div>
+  </section>
+
+  <section id="viewStats" hidden></section>
+</main>
+
+<div class="dock" id="dock" hidden>
+  <div class="dock-in">
+    <div class="info"><b id="dockDone">0</b> séries validées · <span id="dockTime" class="tnum">0:00</span></div>
+    <button class="rest" id="rest" type="button" hidden><span class="ring"></span><span id="restTxt">1:30</span></button>
+    <button class="btn ghost" id="btnCancel" type="button">Annuler</button>
+    <button class="btn good big" id="btnFinish" type="button">Terminer</button>
+  </div>
+</div>
+
+<div id="overlay"></div>
+
+<script src="./config.js"></script>
+<script src="./sync.js"></script>
+<script src="./app.js"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch((err) => console.warn('Service worker non enregistré :', err)); });
+  }
+</script>
+</body>
+</html>
