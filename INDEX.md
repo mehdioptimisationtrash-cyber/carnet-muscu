@@ -24,9 +24,16 @@ Carnet de musculation personnel de Mehdi, en PWA installable sur iPhone, sauvega
 | `exports/` (gitignoré) | `migration.json` = données issues de l'ancien fichier iCloud (12 exos, séance du 15/09) |
 
 ## Modèle de données (`state` v2)
-`{ v:2, rev, xp, settings:{rest}, exos:[{id,name,mode:'reps'|'temps',step,repMin,repMax,sets:[{charge,reps}],last,best,stalled}], session:null|{startedAt,results}, history:[{date,at,min,volume,xp,setsDone,setsTotal,fails,prs,paliers,exos}] }`
+`{ v:2, rev, xp, settings:{rest,weeklyGoal,autoDeload}, exos:[{id,name,mode:'reps'|'temps',step,repMin,repMax,sets:[{charge,reps,fails}],last,best,stalled}], session:null|{startedAt,results,targets,light}, history:[{date,at,min,volume,xp,setsDone,setsTotal,fails,prs,paliers,light,challenges:{total,won},exos}], weights:[{date,kg}] }`
 - La version la plus récente (`rev`) gagne entre cache local et feuille.
 - Exercices non touchés pendant une séance = réservés à une autre séance : ni pénalité ni modification.
+
+## Logique de coaching (décisions 2026-09-17)
+- **Défi** = série dont la cible dépasse la dernière fois (ou défi raté à retenter) → pastille ⚡, ligne « Défi : S1 +1 rep », écran de départ « N défis, jusqu'à +XP », bilan « défis x/y ».
+- **Échec** : en séance, bouton « Trop lourd : valider et alléger la suite (−cran) » (modifie `session.targets`, persiste comme nouvelle base) ; en fin de séance, par exo raté : Retenter / Alléger −cran / Garder ce que j'ai fait ; automatique : raté 2× de suite (`sets[i].fails`) → −1 cran (`settings.autoDeload`).
+- **Séance légère** : charges −10 % arrondies au cran (min. −1 cran), aucun défi, cibles et `last` inchangés, XP ÷ 2, entrée d'historique `light`.
+- **Poids corporel** (onglet Stats) : moyenne 7 j, rythme %/semaine avec message (idéal −0,5 à −1 %/sem ; Mehdi 187 cm / 112 kg en recomposition).
+- Objectif séances/semaine (chip 📅 x/y), repos réglable, semaine de décharge conseillée si ≥ 3 exos stagnent.
 
 ## Comment lancer
 ```bash
@@ -43,6 +50,8 @@ Déploiement : `git push` (Pages sur `main`, racine). Penser à `CACHE_VERSION` 
 ## Activité récente
 - 2026-09-17 : création du projet, premier commit, repo GitHub + Pages.
 - 2026-09-17 : feuille Google créée par Mehdi, script déployé (id `AKfycbwWdy99…u8Z0`), `SHEETS_URL` branchée dans `config.js`, données migrées dans la feuille (12 exos, séance du 15/09, 700 XP), vérifié en navigateur : lecture + écriture OK.
+
+- 2026-09-17 (soir) : Leg press = fusion de « Legs · ischio » + « Legs · normal » (écrit directement dans la feuille). Ajout défis explicites, gestion des échecs, séance légère, objectif hebdo, poids corporel, réglages ⚙︎ (cache SW v3).
 
 ## Notes techniques
 - Un POST vers Apps Script répond par une redirection 302 vers `script.googleusercontent.com/macros/echo` : les navigateurs la suivent et lisent bien `{"ok":true}`. Python `urllib` la suit mal (renvoie `unauthorized` alors que l'écriture a eu lieu) — utiliser Playwright pour tester, pas `curl`/`urllib`.
