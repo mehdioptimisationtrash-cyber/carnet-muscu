@@ -81,6 +81,8 @@
   const prevCharge = (e, c) => typeof c !== 'number' ? null : hasStack(e) ? ([...e.stack].reverse().find(v => v < c - 0.01) ?? null) : (c - e.step >= 0 ? round1(c - e.step) : null);
   const upLabel = (e, c) => { const n = nextCharge(e, c); return n === null ? 'haut de la pile' : `+${round1(n - c)} kg`; };
   const downLabel = (e) => hasStack(e) ? 'une plaque' : `${e.step} kg`;
+  // ramène une charge à la plaque réelle la plus proche (utile quand on vient de saisir la pile)
+  const snapToStack = (e, c) => (hasStack(e) && typeof c === 'number') ? e.stack.reduce((best, v) => Math.abs(v - c) < Math.abs(best - c) ? v : best, e.stack[0]) : c;
   // « 9, 16, 23 » ou « 12,5 » (virgule décimale = un seul chiffre après, collé)
   const parseStack = (txt) => [...new Set(String(txt).replace(/(\d),(\d)(?!\d)/g, '$1.$2').split(/[^\d.]+/).map(Number).filter(v => v > 0 && v < 1000))].sort((a, b) => a - b);
 
@@ -335,7 +337,20 @@
         el('div', { class: 'field' }, el('label', { for: 'mMode', text: 'Type' }), selMode),
         el('div', { class: 'field wide' }, el('label', { for: 'mStack', text: 'Plaques de la machine (kg, séparées par des virgules)' }), inStack, stackHint)),
       el('div', { class: 'menu' },
-        el('button', { class: 'btn primary', type: 'button', text: 'Enregistrer les réglages', onclick: () => { const st = parseStack(inStack.value); upd(x => ({ ...x, repMin: Number(selMin.value), repMax: Math.max(Number(selMin.value) + 1, Number(selMax.value)), step: Number(selStep.value), mode: selMode.value, stack: st.length > 1 ? st : undefined })); } }),
+        el('button', {
+          class: 'btn primary', type: 'button', text: 'Enregistrer les réglages', onclick: () => {
+            const stackVals = parseStack(inStack.value);
+            const stack = stackVals.length > 1 ? stackVals : undefined;
+            const repMin = Number(selMin.value), repMax = Math.max(repMin + 1, Number(selMax.value)), step = Number(selStep.value), mode = selMode.value;
+            const patch = { repMin, repMax, step, mode, stack };
+            // la pile vient d'être saisie/modifiée : on recale tout de suite les charges affichées sur les vraies plaques
+            const snap = (t) => stack && typeof t.charge === 'number' ? { ...t, charge: snapToStack({ stack }, t.charge) } : t;
+            let next = { ...state, exos: state.exos.map(x => x.id === exoId ? { ...x, ...patch, sets: x.sets.map(snap) } : x) };
+            const T = state.session?.targets?.[exoId];
+            if (T) next = { ...next, session: { ...next.session, targets: { ...next.session.targets, [exoId]: T.map(snap) } } };
+            commit(next); closeSheet();
+          },
+        }),
         el('div', { class: 'row2' },
           el('button', { class: 'btn', type: 'button', text: '+ une série', onclick: () => upd(x => ({ ...x, sets: [...x.sets, { ...(x.sets.at(-1) || { charge: 'PDC', reps: x.repMin }), fails: 0 }] })) }),
           el('button', { class: 'btn', type: 'button', text: '− dernière série', onclick: () => upd(x => ({ ...x, sets: x.sets.slice(0, -1) })) })),
@@ -373,7 +388,13 @@
     if (ev.key !== 'Enter') return;
     const name = ev.target.value.trim(); if (!name) return;
     ev.target.value = '';
-    commit({ ...state, exos: [...state.exos, mkExo(name, [{ charge: 10, reps: 10 }, { charge: 10, reps: 10 }, { charge: 10, reps: 10 }])] });
+    const exo = mkExo(name, [{ charge: 10, reps: 10 }, { charge: 10, reps: 10 }, { charge: 10, reps: 10 }]);
+    let next = { ...state, exos: [...state.exos, exo] };
+    if (next.session) {
+      // ajouté en pleine séance : on lui crée tout de suite ses cibles/résultats, sinon ses pastilles restent muettes
+      next = { ...next, session: { ...next.session, results: { ...next.session.results, [exo.id]: exo.sets.map(t => ({ charge: t.charge, reps: t.reps, done: null })) }, targets: { ...next.session.targets, [exo.id]: exo.sets.map(t => ({ ...t })) } } };
+    }
+    commit(next);
     $('#addExo').focus();
   });
   $('#btnSettings').addEventListener('click', openSettings);
@@ -427,7 +448,10 @@
   function finishSession() {
     stopRest();
     const s = state.session, date = today(), light = !!s.light;
-    let xp = XP.session, setsDone = 0, setsTotal = 0, fails = 0, volume = 0, chalTotal = 0, chalWon = 0;
+    // reprise d'une séance coupée le même jour : on fusionne plutôt que de compter une 2e séance
+    const prevEntry = state.history.at(-1);
+    const continuation = !!(prevEntry && prevEntry.date === date);
+    let xp = continuation ? 0 : XP.session, setsDone = 0, setsTotal = 0, fails = 0, volume = 0, chalTotal = 0, chalWon = 0;
     const prs = [], paliers = [], changes = [], failed = [], exosLog = {};
     const exos = state.exos.map(e => {
       const raw = s.results[e.id] || [];
@@ -464,16 +488,34 @@
       return { ...e, sets: next.map(({ up, deload, ...t }) => t), last: res, best, stalled: done ? (progressed ? 0 : e.stalled + 1) : e.stalled };
     });
     if (light) xp = Math.round(xp * XP.light);
-    const streak = streakWeeks({ history: [...state.history, { date }] });
-    xp += Math.min(XP.streakMax, XP.streakPerWeek * Math.max(0, streak - 1));
-    const entry = { date, at: Date.now(), min: Math.round((Date.now() - s.startedAt) / 60000), volume: Math.round(volume), xp, setsDone, setsTotal, fails, prs, paliers, light, challenges: { total: chalTotal, won: chalWon }, exos: exosLog };
+    const streak = streakWeeks({ history: continuation ? state.history : [...state.history, { date }] });
+    if (!continuation) xp += Math.min(XP.streakMax, XP.streakPerWeek * Math.max(0, streak - 1));
+    let entry = { date, at: Date.now(), min: Math.round((Date.now() - s.startedAt) / 60000), volume: Math.round(volume), xp, setsDone, setsTotal, fails, prs, paliers, light, challenges: { total: chalTotal, won: chalWon }, exos: exosLog };
+    let history;
+    if (continuation) {
+      entry = mergeEntries(prevEntry, entry);
+      history = [...state.history.slice(0, -1), entry];
+    } else {
+      history = [...state.history, entry].slice(-HISTORY_MAX);
+    }
     const lvlBefore = level(state.xp);
-    const nextState = { ...state, exos, session: null, xp: state.xp + xp, history: [...state.history, entry].slice(-HISTORY_MAX) };
+    const nextState = { ...state, exos, session: null, xp: state.xp + xp, history };
     commit(nextState);
-    showSummary(entry, changes, failed, lvlBefore, level(nextState.xp), streak);
+    showSummary(entry, changes, failed, lvlBefore, level(nextState.xp), streak, continuation);
     if (!light) confetti();
   }
-  function showSummary(h, changes, failed, l0, l1, streak) {
+  // Fusionne une reprise de séance (même jour) avec l'entrée déjà enregistrée : additionne les compteurs,
+  // remplace les cibles/records (déjà à jour dans `state.exos`), garde le détail le plus récent par exercice.
+  function mergeEntries(a, b) {
+    return {
+      date: a.date, at: b.at, min: (a.min || 0) + (b.min || 0), volume: Math.round((a.volume || 0) + (b.volume || 0)),
+      xp: (a.xp || 0) + (b.xp || 0), setsDone: a.setsDone + b.setsDone, setsTotal: a.setsTotal + b.setsTotal, fails: a.fails + b.fails,
+      prs: [...new Set([...a.prs, ...b.prs])], paliers: [...new Set([...a.paliers, ...b.paliers])], light: a.light && b.light,
+      challenges: { total: (a.challenges?.total || 0) + (b.challenges?.total || 0), won: (a.challenges?.won || 0) + (b.challenges?.won || 0) },
+      exos: { ...a.exos, ...b.exos },
+    };
+  }
+  function showSummary(h, changes, failed, l0, l1, streak, continuation) {
     const list = el('ul', { class: 'list' });
     if (l1 > l0) list.append(el('li', { class: 'gold', html: `🎉 <b>Niveau ${l1} — ${titleFor(l1)}</b><small>Tu passes un cap.</small>` }));
     if (h.challenges.total) list.append(el('li', { class: h.challenges.won === h.challenges.total ? 'gold' : 'good', html: `⚡ <b>Défis : ${h.challenges.won}/${h.challenges.total} réussis</b><small>${h.challenges.won === h.challenges.total ? 'Carton plein — les cibles montent.' : 'Les défis ratés restent en place : on les retente.'}</small>` }));
@@ -503,6 +545,7 @@
     const wk = weekCount(), goal = state.settings.weeklyGoal;
     openSheet(el('div', { class: 'summary' },
       el('h3', { text: h.light ? 'Séance légère terminée 👍' : 'Séance terminée 💪' }),
+      ...(continuation ? [el('p', { class: 'hint', text: 'Reprise de la séance de tout à l’heure : fusionnée avec celle du jour, ça ne compte que pour une séance.' })] : []),
       el('div', { class: 'sub', text: `${h.setsDone}/${h.setsTotal} séries · ${h.min} min · ${(h.volume / 1000).toFixed(1)} t soulevées · 📅 ${wk}/${goal} cette semaine · 🔥 ${streak} sem.` }),
       el('div', { class: 'xp-big', text: `+${h.xp} XP` }),
       list, adj,

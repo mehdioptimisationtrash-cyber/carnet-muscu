@@ -53,11 +53,17 @@ Déploiement : `git push` (Pages sur `main`, racine). Penser à `CACHE_VERSION` 
 - 2026-09-17 : feuille Google créée par Mehdi, script déployé (id `AKfycbwWdy99…u8Z0`), `SHEETS_URL` branchée dans `config.js`, données migrées dans la feuille (12 exos, séance du 15/09, 700 XP), vérifié en navigateur : lecture + écriture OK.
 
 - 2026-09-17 (soir) : Leg press = fusion de « Legs · ischio » + « Legs · normal » (écrit directement dans la feuille). Ajout défis explicites, gestion des échecs, séance légère, objectif hebdo, poids corporel, réglages ⚙︎ (cache SW v3).
+- 2026-09-18 : pile de plaques par machine (SW v4). Corrigé 3 bugs remontés par Mehdi : (1) exo ajouté pendant une séance en cours n'avait pas d'entrée dans `session.results`/`targets` → tap ne faisait rien (`openSet` plantait sur `results[exoId][i]` undefined) ; (2) saisir la pile de plaques ne recalait pas les charges déjà choisies sur les vraies valeurs (pas de snap) ; (3) une séance coupée puis reprise le même jour créait une 2e entrée d'historique → comptait double dans « x/3 cette semaine ». Corrigé aussi 2 doublons déjà présents dans la feuille (18/09, 180+185 XP → fusionnés 315 XP). SW v5.
 
 ## Notes techniques
 - Un POST vers Apps Script répond par une redirection 302 vers `script.googleusercontent.com/macros/echo` : les navigateurs la suivent et lisent bien `{"ok":true}`. Python `urllib` la suit mal (renvoie `unauthorized` alors que l'écriture a eu lieu) — utiliser Playwright pour tester, pas `curl`/`urllib`.
 - `curl` est refusé par les permissions de la session Claude Code chez Mehdi.
 
+## Logique anti-doublon (2026-09-18)
+- `finishSession()` : si `state.history.at(-1).date === today()`, la nouvelle séance **fusionne** avec la précédente (`mergeEntries`) au lieu de créer une 2e entrée — additionne sets/volume/xp/défis, union prs/paliers, `exos` = dernière valeur par id, `light` = ET des deux. Pas de bonus `XP.session` ni de bonus de série sur une reprise (`continuation`).
+- `weekCount()`/les chips comptent des **entrées d'historique**, donc dépendent de cette dédup par date — ne pas la retirer sans revoir ces compteurs.
+
 ## TODO
 - [ ] Mehdi : installer sur l'iPhone (Safari → Partager → Sur l'écran d'accueil) et tester une séance réelle.
+- [ ] Saisir les piles de plaques des machines de la salle (⋯ → « Plaques de la machine » sur chaque exo, ou me les dicter).
 - [ ] Éventuel : réglage du temps de repos dans l'interface (aujourd'hui 90 s fixe dans `settings.rest`).
