@@ -96,7 +96,8 @@ h1 { font-size: 30px; font-weight: 700; letter-spacing: -.01em; margin: 0; line-
 }
 .set { position: relative; }
 .set:hover { border-color: var(--accent); }
-.set.chal { border-color: var(--gold); box-shadow: 0 0 0 2px var(--gold-soft); }
+.set.chal { background: var(--gold-soft); border-color: var(--gold); }
+.set.chal .ch, .set.chal .reps small { color: var(--gold); }
 .zap { position: absolute; top: -8px; right: -7px; font-size: 12px; line-height: 1; filter: drop-shadow(0 1px 1px rgba(0,0,0,.25)); }
 .tip.strong { color: var(--gold); font-weight: 700; }
 .btn.warn { background: var(--warn-soft); border-color: transparent; color: var(--text); }

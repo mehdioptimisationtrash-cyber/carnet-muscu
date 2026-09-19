@@ -55,7 +55,7 @@
   let restTimer = null, restEnd = 0, clockTimer = null;
 
   const defaultSettings = () => ({ rest: 90, weeklyGoal: 3, autoDeload: true });
-  const mkExo = (name, sets, opts = {}) => ({ id: uid(), name, mode: 'reps', step: 2, repMin: 10, repMax: 15, sets, last: null, best: null, stalled: 0, ...opts });
+  const mkExo = (name, sets, opts = {}) => ({ id: uid(), name, mode: 'reps', step: 2, repMin: 8, repMax: 15, sets, last: null, best: null, stalled: 0, ...opts });
   const seed = () => ({ v: 2, rev: 0, xp: 0, settings: defaultSettings(), exos: [], session: null, history: [], weights: [] });
   const migrate = (d) => {
     if (!d || typeof d !== 'object') return null;
@@ -269,6 +269,17 @@
     const chal = !inS || !state.session.light ? challengesOf(e, T).find(c => c.i === i) : null;
     const selC = selectEl('fC', chargeOptions(e, cur.charge), cur.charge, (o) => o === 'PDC' ? 'Poids du corps' : `${o} kg`);
     const selR = selectEl('fR', repOptions(e), cur.reps, (o) => isTemps(e) ? `${o} s` : `${o} reps`);
+    const resetHint = el('p', { class: 'hint' });
+    if (!inS && !isTemps(e)) {
+      // charge cible relevée à la main → on repart d'une base de reps (comme un vrai palier), modifiable ensuite
+      selC.addEventListener('change', () => {
+        const v = parseCharge(selC.value);
+        if (typeof v === 'number' && typeof t.charge === 'number' && v > t.charge) {
+          selR.value = String(e.repMin);
+          resetHint.textContent = `Charge relevée : reps repartent à ${e.repMin} (palier), ajustable ci-dessus.`;
+        } else resetHint.textContent = '';
+      });
+    }
     const fields = el('div', { class: 'fields' },
       isTemps(e) ? el('div') : el('div', { class: 'field' }, el('label', { for: 'fC', text: 'Charge' }), selC),
       el('div', { class: 'field' }, el('label', { for: 'fR', text: isTemps(e) ? 'Durée' : 'Reps' }), selR));
@@ -284,15 +295,13 @@
         el('button', { class: 'btn warn', type: 'button', text: `Trop lourd : valider et alléger la suite (→ ${fmtKg(prevCharge(e, t.charge))})`, onclick: () => logSet(exoId, i, { ...read(), done: true }, true) }));
       actions.append(el('button', { class: 'btn ghost', type: 'button', text: 'Pas faite', onclick: () => logSet(exoId, i, { ...t, done: false }) }));
     } else {
-      actions.append(
-        el('button', { class: 'btn primary big', type: 'button', text: 'Enregistrer la cible', onclick: () => { commit(updExo(exoId, x => ({ ...x, sets: x.sets.map((s, k) => k === i ? { ...read(), fails: 0 } : s) }))); closeSheet(); } }),
-        el('button', { class: 'btn', type: 'button', text: 'Appliquer à toutes les séries', onclick: () => { const v = read(); commit(updExo(exoId, x => ({ ...x, sets: x.sets.map(() => ({ ...v, fails: 0 })) }))); closeSheet(); } }),
-      );
+      // toujours une seule série à la fois — jamais toutes les séries d'un coup
+      actions.append(el('button', { class: 'btn primary big', type: 'button', text: `Enregistrer la cible de la série ${i + 1}`, onclick: () => { commit(updExo(exoId, x => ({ ...x, sets: x.sets.map((s, k) => k === i ? { ...read(), fails: 0 } : s) }))); closeSheet(); } }));
     }
     const sub = inS
       ? `Cible : ${fmtReps(e, t.reps)}${isTemps(e) ? '' : ' à ' + fmtKg(t.charge)}${chal ? ` · ⚡ défi (${chal.kind === 'charge' ? '+' + chal.delta + ' kg' : '+' + chal.delta + (isTemps(e) ? ' s' : ' rep')})` : ''}${e.last?.[i]?.done ? ' · dernière fois ' + fmtReps(e, e.last[i].reps) + (isTemps(e) ? '' : ' à ' + fmtKg(e.last[i].charge)) : ''}`
       : `Cible pour la prochaine séance · palier à ${fmtReps(e, e.repMax)}${(t.fails || 0) ? ` · ratée ${t.fails}× de suite` : ''}`;
-    openSheet(el('h3', { text: `${e.name} — série ${i + 1}` }), el('div', { class: 'sub', text: sub }), fields, actions);
+    openSheet(el('h3', { text: `${e.name} — série ${i + 1}` }), el('div', { class: 'sub', text: sub }), fields, resetHint, actions);
   }
   function logSet(exoId, i, r, deloadRest = false) {
     const s = state.session;
