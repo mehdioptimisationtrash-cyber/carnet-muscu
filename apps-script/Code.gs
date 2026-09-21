@@ -12,7 +12,7 @@
  * TOKEN doit être identique à celui de config.js sur le site.
  */
 const TOKEN = 'c34f34c52f50ef6db3b1a960e44f8f66';
-const VERSION = 2;
+const VERSION = 3;
 const NUTRITION_DAYS_SENT = 120;   // l'app reçoit les 120 derniers jours ; tout reste dans la feuille
 
 function doGet(e) {
@@ -105,8 +105,11 @@ function nutritionSheet(ss) {
   return sh;
 }
 
+// Google Sheets convertit « 2026-09-21 » en vraie date : on la ramène toujours au texte AAAA-MM-JJ.
+// (`instanceof Date` n'est pas fiable dans Apps Script : on teste la présence de getTime.)
 function dateKey(v) {
-  return v instanceof Date ? Utilities.formatDate(v, Session.getScriptTimeZone(), 'yyyy-MM-dd') : String(v);
+  if (v && typeof v.getTime === 'function') return Utilities.formatDate(v, SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone(), 'yyyy-MM-dd');
+  return String(v);
 }
 
 function upsertDays(ss, days) {
@@ -139,7 +142,8 @@ function readDays(ss) {
   const start = Math.max(2, n + 2 - NUTRITION_DAYS_SENT);
   const rows = sh.getRange(start, 1, n + 2 - start, 8).getValues();
   const outDays = {};
-  rows.forEach((r) => { if (r[7]) { try { outDays[dateKey(r[0])] = JSON.parse(r[7]); } catch (err) { /* ligne abîmée : ignorée */ } } });
+  // la clé vient des données du jour elles-mêmes (fiable), la colonne A ne sert que de secours
+  rows.forEach((r) => { if (r[7]) { try { const d = JSON.parse(r[7]); outDays[d.date || dateKey(r[0])] = d; } catch (err) { /* ligne abîmée : ignorée */ } } });
   return outDays;
 }
 
