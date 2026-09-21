@@ -33,7 +33,7 @@ with sync_playwright() as p:
 
     # --- Bug 1 : ajouter un exercice pendant une séance en cours ---
     pg.fill("#addExo", "Développé assis"); pg.press("#addExo", "Enter"); synced(pg)
-    pg.click("#btnStart"); pg.click("text=Séance normale"); pg.wait_for_selector("#dock:not([hidden])")
+    pg.click("#btnStart"); pg.click(".sheet .actions .btn.primary"); pg.wait_for_selector("#dock:not([hidden])")
     pg.fill("#addExo", "Lat pulldown"); pg.press("#addExo", "Enter"); synced(pg)   # ajouté EN COURS de séance
     before_crash = len(errors)
     pg.click(".exo >> nth=1 >> .set >> nth=0")   # doit ouvrir la feuille, pas planter
@@ -54,15 +54,15 @@ with sync_playwright() as p:
 
     # finir la séance
     for i in range(2): pg.click(f".exo >> nth={i} >> .set >> nth=1"); pg.click("text=/Réussie|Valider ces valeurs/")
-    pg.click("#btnFinish"); pg.wait_for_selector(".summary")
+    pg.click("#btnFinish"); pg.click("text=Non, terminer la séance"); pg.wait_for_selector(".summary")
     week1 = pg.text_content(".summary .sub")
     pg.click(".summary .actions .btn"); synced(pg)
     chip1 = pg.locator(".chips-top .chip").first.text_content()
 
     # --- Bug 3 : séance coupée puis reprise le même jour → fusion, pas de doublon ---
-    pg.click("#btnStart"); pg.click("text=Séance normale"); pg.wait_for_selector("#dock:not([hidden])")
+    pg.click("#btnStart"); pg.click(".sheet .actions .btn.primary"); pg.wait_for_selector("#dock:not([hidden])")
     pg.click(".exo >> nth=0 >> .set >> nth=2"); pg.click("text=/Réussie/")
-    pg.click("#btnFinish"); pg.wait_for_selector(".summary")
+    pg.click("#btnFinish"); pg.click("text=Non, terminer la séance"); pg.wait_for_selector(".summary")
     continuation_notice = pg.locator(".summary .hint").first.text_content()
     pg.click(".summary .actions .btn"); synced(pg)
     chip2 = pg.locator(".chips-top .chip").first.text_content()

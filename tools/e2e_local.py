@@ -23,9 +23,9 @@ def fake_sheets(route, request):
 def synced(pg): pg.wait_for_function("document.querySelector('#status').dataset.state === 'ok'", timeout=15000)
 def start(pg, light=False):
     pg.click("#btnStart"); pg.wait_for_selector(".sheet")
-    pg.click("text=Séance légère" if light else "text=Séance normale"); pg.wait_for_selector("#dock:not([hidden])")
+    pg.click("text=Séance légère" if light else ".sheet .actions .btn.primary"); pg.wait_for_selector("#dock:not([hidden])")
 def finish(pg):
-    pg.click("#btnFinish"); pg.wait_for_selector(".summary")
+    pg.click("#btnFinish"); pg.click("text=Non, terminer la séance"); pg.wait_for_selector(".summary")
     out = {"xp": pg.text_content(".xp-big"), "items": pg.locator(".summary .list li").all_text_contents(), "choices": pg.locator(".choice b").all_text_contents()}
     return out
 

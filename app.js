@@ -216,19 +216,15 @@
       $('#sessionMeta').textContent = nChal ? `⚡ ${plural(nChal, 'défi')} aujourd’hui : ${[reps && `+1 rep ×${reps}`, ch && `+charge ×${ch}`].filter(Boolean).join(', ')} · jusqu’à +${potentialXp()} XP` : `${plural(state.exos.length, 'exercice')} · réussis tout pour débloquer les défis`;
     }
     $('#btnStart').hidden = inS || !state.exos.length;
-    $('#btnStart').textContent = nChal ? `Relever ${plural(nChal, 'défi')}` : 'Démarrer la séance';
+    $('#btnCancelTop').hidden = !inS;
     const root = $('#exos');
     root.replaceChildren();
     const currentId = inS ? state.exos.find(e => (state.session.results[e.id] || []).some(r => r.done === null))?.id : null;
-    if (inS) root.append(state.session.cardio?.avant ? cardioCard('avant') : addCardioBtn('avant'));
+    if (inS && state.session.cardio?.avant) root.append(cardioCard('avant'));
     for (const e of state.exos) root.append(exoCard(e, inS, e.id === currentId));
-    if (inS) root.append(state.session.cardio?.apres ? cardioCard('apres') : addCardioBtn('apres'));
+    if (inS && state.session.cardio?.apres) root.append(cardioCard('apres'));
   }
   const newCardio = (type) => ({ type, startedAt: null, sec: 0, done: false });
-  const addCardioBtn = (pos) => el('button', { class: 'add-cardio', type: 'button', text: `+ ${CARDIO_POS[pos]}`, onclick: () => {
-    const type = state.settings.cardio?.[pos] !== 'none' && state.settings.cardio?.[pos] || (pos === 'avant' ? 'marche' : 'elliptique');
-    commit({ ...state, session: { ...state.session, cardio: { ...(state.session.cardio || {}), [pos]: newCardio(type) } } });
-  } });
   function cardioCard(pos) {
     const c = state.session.cardio[pos];
     const running = !!c.startedAt, sec = cardioSec(c);
@@ -500,39 +496,59 @@
   /* ---------- séance : démarrer / repos / terminer ---------- */
   $('#btnStart').addEventListener('click', () => {
     if (state.session) return;
-    const chal = allChallenges(), n = chal.reduce((a, x) => a + x.cs.length, 0);
-    const list = el('ul', { class: 'list' });
-    for (const x of chal) list.append(el('li', { class: 'good', html: `<b>${x.e.name}</b><small>${challengeText(x.e, x.cs)}</small>` }));
-    if (!n) list.append(el('li', { text: state.history.length ? 'Pas de défi chiffré aujourd’hui : réussis toutes tes cibles et ils apparaîtront.' : 'Première séance : fixe ta base, les défis arrivent dès la suivante.' }));
+    const n = allChallenges().reduce((a, x) => a + x.cs.length, 0);
     openSheet(
-      el('h3', { text: n ? `⚡ ${plural(n, 'défi')} aujourd’hui` : 'C’est parti' }),
-      el('div', { class: 'sub', text: `Jusqu’à +${potentialXp()} XP · ${weekCount()}/${state.settings.weeklyGoal} séances cette semaine` }),
-      list,
-      el('div', { class: 'fields', style: 'margin-top:12px' },
-        el('div', { class: 'field' }, el('label', { for: 'scAvant', text: '🏃 Cardio avant' }), selectEl('scAvant', ['none', ...Object.keys(CARDIO)], state.settings.cardio?.avant || 'none', (o) => o === 'none' ? 'Aucun' : CARDIO[o])),
-        el('div', { class: 'field' }, el('label', { for: 'scApres', text: '🏃 Cardio après' }), selectEl('scApres', ['none', ...Object.keys(CARDIO)], state.settings.cardio?.apres || 'none', (o) => o === 'none' ? 'Aucun' : CARDIO[o]))),
-      el('div', { class: 'actions', style: 'margin-top:4px' },
-        el('button', { class: 'btn primary big', type: 'button', text: 'Séance normale', onclick: () => startSession(false) }),
+      el('h3', { text: 'Démarrer la séance' }),
+      el('div', { class: 'sub', text: `${n ? `⚡ ${plural(n, 'défi')} · ` : ''}jusqu’à +${potentialXp()} XP · ${weekCount()}/${state.settings.weeklyGoal} séances cette semaine` }),
+      el('div', { class: 'fields' },
+        el('div', { class: 'field wide' }, el('label', { for: 'scAvant', text: '🏃 Cardio d’échauffement ?' }), selectEl('scAvant', ['none', ...Object.keys(CARDIO)], state.settings.cardio?.avant || 'none', (o) => o === 'none' ? 'Non, pas de cardio avant' : `Oui — ${CARDIO[o]}`))),
+      el('div', { class: 'actions' },
+        el('button', { class: 'btn primary big', type: 'button', text: 'Démarrer', onclick: () => startSession(false) }),
         el('button', { class: 'btn', type: 'button', text: 'Séance légère (−10 %)', onclick: () => startSession(true) })),
-      el('p', { class: 'hint', style: 'margin-top:8px', text: 'Séance légère = fatigue, peu de sommeil, grosse journée : charges −10 %, aucun défi, cibles inchangées, XP ÷ 2. On maintient, on ne casse pas la série.' }));
+      el('p', { class: 'hint', style: 'margin-top:8px', text: 'Le cardio de fin te sera proposé quand tu toucheras « Terminer ». Séance légère = jour de fatigue : charges −10 %, aucun défi, cibles inchangées, XP ÷ 2.' }));
   });
   function startSession(light) {
     // légère : −10 % arrondi au cran, et au minimum un cran de moins ; sur une pile de plaques : la plaque du dessous
     const lighten = (e, c) => hasStack(e) ? (prevCharge(e, c) ?? c) : Math.max(0, Math.min(roundStep(c * LIGHT_FACTOR, e.step), round1(c - e.step)));
     const targets = Object.fromEntries(state.exos.map(e => [e.id, e.sets.map(t => light && typeof t.charge === 'number' && t.charge > 0 ? { ...t, charge: lighten(e, t.charge) } : { ...t })]));
     const results = Object.fromEntries(state.exos.map(e => [e.id, targets[e.id].map(t => ({ charge: t.charge, reps: t.reps, done: null }))]));
-    const pick = { avant: $('#scAvant')?.value || 'none', apres: $('#scApres')?.value || 'none' };   // choix mémorisé pour la prochaine fois
-    const cardio = { avant: pick.avant === 'none' ? null : newCardio(pick.avant), apres: pick.apres === 'none' ? null : newCardio(pick.apres) };
-    commit({ ...state, settings: { ...state.settings, cardio: pick }, session: { startedAt: Date.now(), results, targets, light, cardio } });
+    const avant = $('#scAvant')?.value || 'none';   // choix mémorisé pour la prochaine fois ; le cardio de fin se décide à « Terminer »
+    const cardio = { avant: avant === 'none' ? null : newCardio(avant), apres: null };
+    commit({ ...state, settings: { ...state.settings, cardio: { ...(state.settings.cardio || {}), avant } }, session: { startedAt: Date.now(), results, targets, light, cardio } });
     closeSheet();
     window.scrollTo({ top: $('#exos').offsetTop - 60, behavior: 'smooth' });
     if (!cardio.avant) runShortcut('renfo');   // avec un cardio avant, c'est son bouton Démarrer qui lance la montre
   }
-  $('#btnCancel').addEventListener('click', () => { if (confirm('Annuler la séance en cours ? Rien ne sera enregistré.')) { stopRest(); commit({ ...state, session: null }); runShortcut('fin'); } });
+  function cancelSession() {
+    if (!state.session || !confirm('Annuler la séance en cours ? Rien ne sera enregistré : ni séries, ni cardio, ni XP. Tes cibles restent telles quelles.')) return;
+    stopRest(); closeSheet();
+    commit({ ...state, session: null });
+    runShortcut('fin');
+  }
+  $('#btnCancel').addEventListener('click', cancelSession);
+  $('#btnCancelTop').addEventListener('click', cancelSession);
+
+  const sessionHasWork = () => Object.values(state.session.results).flat().some(r => r.done !== null) || ['avant', 'apres'].some(p => cardioSec(state.session.cardio?.[p]) > 0);
+  function tryFinish() {
+    if (!sessionHasWork()) { alert('Rien à enregistrer : valide au moins une série ou un cardio — ou touche « Annuler la séance ».'); return; }
+    closeSheet(); finishSession();
+  }
   $('#btnFinish').addEventListener('click', () => {
-    const any = Object.values(state.session.results).flat().some(r => r.done !== null) || ['avant', 'apres'].some(p => cardioSec(state.session.cardio?.[p]) > 0);
-    if (!any) { alert('Valide au moins une série ou un cardio avant de terminer (ou annule la séance).'); return; }
-    finishSession();
+    if (state.session.cardio?.apres) { tryFinish(); return; }     // cardio de fin déjà fait (ou en cours) : on termine
+    const dflt = state.settings.cardio?.apres && state.settings.cardio.apres !== 'none' ? state.settings.cardio.apres : 'elliptique';
+    const selType = selectEl('ecType', Object.keys(CARDIO), dflt, (o) => CARDIO[o]);
+    openSheet(
+      el('h3', { text: 'Un cardio pour finir ?' }),
+      el('div', { class: 'sub', text: 'Après la muscu, c’est le meilleur moment : ta force est déjà dépensée là où elle comptait.' }),
+      el('div', { class: 'fields' }, el('div', { class: 'field wide' }, el('label', { for: 'ecType', text: 'Type de cardio' }), selType)),
+      el('div', { class: 'actions' },
+        el('button', { class: 'btn primary big', type: 'button', text: '🏃 Oui, lancer le cardio', onclick: () => {
+          const type = selType.value;
+          commit({ ...state, settings: { ...state.settings, cardio: { ...(state.settings.cardio || {}), apres: type } }, session: { ...state.session, cardio: { ...(state.session.cardio || {}), apres: newCardio(type) } } });
+          closeSheet(); startCardio('apres');
+          document.getElementById('cardio-apres')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } }),
+        el('button', { class: 'btn good big', type: 'button', text: 'Non, terminer la séance', onclick: tryFinish })));
   });
   function startRest() {
     stopRest();

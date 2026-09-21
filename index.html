@@ -53,6 +53,7 @@
     <div class="session-head">
       <div><h2 id="sessionTitle">Prochaine séance</h2><div class="meta" id="sessionMeta"></div></div>
       <button class="btn primary big" id="btnStart" type="button">Démarrer la séance</button>
+      <button class="btn danger" id="btnCancelTop" type="button" hidden>✕ Annuler la séance</button>
     </div>
     <div id="exos"></div>
     <div class="add"><span>+</span><input id="addExo" placeholder="Nouvel exercice… (Entrée pour ajouter)" enterkeyhint="done"></div>
@@ -66,7 +67,7 @@
   <div class="dock-in">
     <div class="info"><b id="dockDone">0</b> séries validées · <span id="dockTime" class="tnum">0:00</span></div>
     <button class="rest" id="rest" type="button" hidden><span class="ring"></span><span id="restTxt">1:30</span></button>
-    <button class="btn ghost" id="btnCancel" type="button">Annuler</button>
+    <button class="btn danger" id="btnCancel" type="button">Annuler la séance</button>
     <button class="btn good big" id="btnFinish" type="button">Terminer</button>
   </div>
 </div>
