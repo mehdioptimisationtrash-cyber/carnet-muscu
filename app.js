@@ -2,7 +2,6 @@
   'use strict';
   const CACHE_KEY = 'carnet-muscu-v2';
   const HISTORY_MAX = 120;
-  const WEIGHTS_MAX = 400;
   const LIGHT_FACTOR = 0.9;          // séance légère : charges × 0,9
   const XP = { set: 10, hit: 5, beat: 5, challenge: 10, palier: 40, pr: 30, session: 50, streakPerWeek: 10, streakMax: 50, light: 0.5, cardioMin: 2, cardioCap: 60 };
   const CARDIO_WEEK_TARGET_MIN = 150;   // repère OMS : 150 min/semaine d'intensité modérée
@@ -28,7 +27,7 @@
 
   /* ---------- utilitaires ---------- */
   const uid = () => Math.random().toString(36).slice(2, 9);
-  const today = () => new Date().toISOString().slice(0, 10);
+  const today = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };   // date locale (pas UTC) : un repas à 0 h 30 compte pour le bon jour
   const fmtDate = (iso) => iso ? new Date(iso + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : '—';
   const round1 = (x) => Math.round(x * 2) / 2;
   const roundStep = (x, step) => round1(Math.round(x / step) * step);
@@ -61,10 +60,11 @@
 
   const defaultSettings = () => ({ rest: 90, weeklyGoal: 3, autoDeload: true, apple: false, cardio: { avant: 'none', apres: 'none' } });
   const mkExo = (name, sets, opts = {}) => ({ id: uid(), name, mode: 'reps', step: 2, repMin: 8, repMax: 15, sets, last: null, best: null, stalled: 0, ...opts });
-  const seed = () => ({ v: 2, rev: 0, xp: 0, settings: defaultSettings(), exos: [], session: null, history: [], weights: [] });
+  const seed = () => ({ v: 2, rev: 0, xp: 0, settings: defaultSettings(), exos: [], session: null, history: [], weights: [], nutrition: {} });
+  const isObj = (x) => x && typeof x === 'object' && !Array.isArray(x);
   const migrate = (d) => {
     if (!d || typeof d !== 'object') return null;
-    if (d.v === 2) return { ...seed(), ...d, settings: { ...defaultSettings(), ...(d.settings || {}) }, history: Array.isArray(d.history) ? d.history : [], weights: Array.isArray(d.weights) ? d.weights : [] };
+    if (d.v === 2) return { ...seed(), ...d, settings: { ...defaultSettings(), ...(d.settings || {}) }, history: Array.isArray(d.history) ? d.history : [], weights: Array.isArray(d.weights) ? d.weights : [], nutrition: isObj(d.nutrition) ? d.nutrition : {} };
     const exos = (d.seances || []).flatMap(s => s.exos.map(e => mkExo(e.name, Array.from({ length: e.series || 3 }, () => ({ charge: e.charge, reps: typeof e.reps === 'number' ? e.reps : parseInt(e.reps) || 30 })), typeof e.reps === 'string' ? { mode: 'temps', repMin: 20, repMax: 120 } : {})));
     return { ...seed(), rev: d.rev || 0, exos };
   };
@@ -164,11 +164,13 @@
   /* ---------- rendu ---------- */
   function render() {
     renderHeader();
-    $('#viewSeance').hidden = tab !== 'seance';
-    $('#viewStats').hidden = tab !== 'stats';
-    $('#tabSeance').setAttribute('aria-selected', tab === 'seance');
-    $('#tabStats').setAttribute('aria-selected', tab === 'stats');
-    if (tab === 'seance') renderSeance(); else renderStats();
+    for (const [name, view, btn] of [['seance', '#viewSeance', '#tabSeance'], ['journal', '#viewJournal', '#tabJournal'], ['stats', '#viewStats', '#tabStats']]) {
+      $(view).hidden = tab !== name;
+      $(btn).setAttribute('aria-selected', tab === name);
+    }
+    if (tab === 'seance') renderSeance();
+    else if (tab === 'journal') window.Nutrition?.render($('#viewJournal'));
+    else renderStats();
     renderDock();
   }
   const weekCount = () => state.history.filter(h => weekKey(h.date) === weekKey(today())).length;
@@ -666,55 +668,6 @@
     })(t0);
   }
 
-  /* ---------- poids corporel ---------- */
-  const weightAvg = (arr) => arr.length ? Math.round(arr.reduce((a, w) => a + w.kg, 0) / arr.length * 10) / 10 : null;
-  function weightStats() {
-    const W = [...(state.weights || [])].sort((a, b) => a.date.localeCompare(b.date));
-    if (!W.length) return null;
-    const t = today();
-    const last7 = W.filter(w => daysBetween(w.date, t) < 7), prev7 = W.filter(w => daysBetween(w.date, t) >= 7 && daysBetween(w.date, t) < 14);
-    const a7 = weightAvg(last7), p7 = weightAvg(prev7);
-    const rate = a7 && p7 ? Math.round((a7 - p7) / p7 * 1000) / 10 : null;   // %/semaine
-    return { W, latest: W.at(-1), a7, p7, rate, since: Math.round((W.at(-1).kg - W[0].kg) * 10) / 10, days: daysBetween(W[0].date, W.at(-1).date) };
-  }
-  function weightBlock() {
-    const wrap = el('div');
-    wrap.append(el('h2', { class: 'sec', text: 'Poids corporel' }));
-    const ws = weightStats();
-    const input = el('input', { type: 'number', inputmode: 'decimal', step: '0.1', min: '30', max: '300', id: 'wIn', placeholder: ws ? String(ws.latest.kg) : 'kg', 'aria-label': 'Poids du jour' });
-    const save = () => {
-      const kg = Math.round(Number(input.value) * 10) / 10; if (!kg || kg < 30 || kg > 300) return;
-      const d = today();
-      commit({ ...state, weights: [...(state.weights || []).filter(w => w.date !== d), { date: d, kg }].slice(-WEIGHTS_MAX) });
-    };
-    input.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') save(); });
-    wrap.append(el('div', { class: 'wrow' }, input, el('button', { class: 'btn primary', type: 'button', text: ws?.latest.date === today() ? 'Corriger le poids du jour' : 'Enregistrer le poids du jour', onclick: save })));
-    if (!ws) { wrap.append(el('p', { class: 'hint', text: 'Pèse-toi le matin à jeun, 3 à 7 fois par semaine : c’est la moyenne sur 7 jours qui compte, pas le chiffre du jour.' })); return wrap; }
-    const tiles = el('div', { class: 'tiles' },
-      tile('Dernier', ws.latest.kg, ` kg · ${fmtDate(ws.latest.date)}`),
-      tile('Moyenne 7 j', ws.a7 ?? '—', ' kg'),
-      tile('Rythme', ws.rate === null ? '—' : `${ws.rate > 0 ? '+' : ''}${ws.rate}`, ws.rate === null ? '' : ' %/sem'),
-      tile('Depuis le début', `${ws.since > 0 ? '+' : ''}${ws.since}`, ` kg · ${ws.days} j`));
-    wrap.append(tiles);
-    if (ws.W.length >= 2) {
-      const pts = ws.W.slice(-30);
-      const lo = Math.min(...pts.map(w => w.kg)), hi = Math.max(...pts.map(w => w.kg)), sp = hi - lo || 1;
-      const svg = svgEl('svg', { class: 'spark big', viewBox: '0 0 100 30', preserveAspectRatio: 'none' });
-      const P = pts.map((w, i) => [i * 100 / (pts.length - 1), 27 - (w.kg - lo) / sp * 24]);
-      svg.append(svgEl('path', { d: P.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ') }));
-      svg.append(svgEl('circle', { cx: P.at(-1)[0], cy: P.at(-1)[1], r: 2 }));
-      wrap.append(svg);
-    }
-    if (ws.rate !== null) {
-      const msg = ws.rate <= -1.2 ? ['warn', `Tu perds vite (${ws.rate} %/sem, soit ≈ ${Math.abs(Math.round(ws.a7 * ws.rate / 100 * 10) / 10)} kg/sem)`, 'Au-delà de −1 %/semaine on risque de perdre du muscle : garde tes charges, vise 1,6–2 g de protéines par kg de poids cible, et n’hésite pas à passer en séance légère si les défis coincent.']
-        : ws.rate < -0.25 ? ['good', `Rythme idéal (${ws.rate} %/sem)`, 'Entre −0,5 et −1 %/semaine, la force qui se maintient = le muscle qui reste. Continue.']
-        : ws.rate <= 0.25 ? ['', 'Poids stable sur 2 semaines', 'Normal en recomposition si les charges montent. Si l’objectif est la perte, réduis légèrement les apports ou ajoute de la marche.']
-        : ['warn', `Poids en hausse (+${ws.rate} %/sem)`, 'Sur 2 semaines ce n’est pas du muscle : vérifie les apports. Les charges qui montent, elles, sont acquises.'];
-      wrap.append(el('div', { class: 'axes', style: 'margin-top:8px' }, ax(msg[0], msg[1], msg[2])));
-    }
-    return wrap;
-  }
-
   /* ---------- stats ---------- */
   function renderStats() {
     const v = $('#viewStats'); v.replaceChildren();
@@ -729,7 +682,7 @@
       tile('Cardio cette semaine', weekCardioMin(), ` / ${CARDIO_WEEK_TARGET_MIN} min`),
     ));
     v.append(el('h2', { class: 'sec', text: 'Axes d’amélioration' }), axesBlock());
-    v.append(weightBlock());
+    if (window.Nutrition) v.append(window.Nutrition.statsBlock());
     if (!H.length) { v.append(el('div', { class: 'empty', style: 'margin-top:14px', text: 'Termine ta première séance pour débloquer les tendances.' })); v.append(badgesBlock()); return; }
     v.append(el('h2', { class: 'sec', text: 'Défis réussis par séance' }), challengeChart(H.slice(-12)));
     v.append(el('h2', { class: 'sec', text: 'Volume par séance (kg soulevés)' }), volumeChart(H.slice(-12)));
@@ -781,7 +734,7 @@
   function axesBlock() {
     const out = el('div', { class: 'axes' });
     const H = state.history, last = H.at(-1);
-    if (!last) { out.append(ax('good', 'Commence par une séance', 'Elle fixe ta base. Dès la suivante, chaque série réussie devient un défi : +1 rep, puis +1 cran de charge à 15 reps.')); return out; }
+    if (!last) { if (window.Nutrition) window.Nutrition.axes(out); out.append(ax('good', 'Commence par une séance', 'Elle fixe ta base. Dès la suivante, chaque série réussie devient un défi : +1 rep, puis +1 cran de charge à 15 reps.')); return out; }
     const gap = daysBetween(last.date, today());
     if (gap >= 7) out.append(ax('warn', `Dernière séance il y a ${gap} jours`, 'La régularité pèse plus que l’intensité : cale une séance cette semaine pour garder la série.'));
     const wk = weekCount(), goal = state.settings.weeklyGoal;
@@ -789,6 +742,7 @@
     const cardioWk = weekCardioMin();
     if (cardioWk < CARDIO_WEEK_TARGET_MIN) out.append(ax('', `Cardio : ${cardioWk}/${CARDIO_WEEK_TARGET_MIN} min cette semaine`, 'En perte de poids, vise 150 min/semaine d’intensité modérée (elliptique, marche inclinée : tu peux parler mais pas chanter). Place-le APRÈS la muscu pour garder ta force sur les défis ; 5–10 min avant suffisent comme échauffement. La marche du quotidien compte aussi.'));
     else out.append(ax('good', `Cardio : ${cardioWk} min cette semaine — objectif atteint`, 'Inutile d’en faire beaucoup plus : au-delà, c’est la récupération (et donc tes charges) qui trinque.'));
+    if (window.Nutrition) window.Nutrition.axes(out);
     const chal = allChallenges(), n = chal.reduce((a, x) => a + x.cs.length, 0);
     if (n) out.append(ax('good', `⚡ ${plural(n, 'défi')} t’attendent à la prochaine séance`, chal.map(x => `${x.e.name} : ${challengeText(x.e, x.cs)}`).join(' · ')));
     const rec = H.slice(-3).filter(h => !h.light && h.challenges?.total);
@@ -820,7 +774,15 @@
     return wrap;
   }
   $('#tabSeance').addEventListener('click', () => { tab = 'seance'; render(); });
+  $('#tabJournal').addEventListener('click', () => { tab = 'journal'; render(); });
   $('#tabStats').addEventListener('click', () => { tab = 'stats'; render(); });
+
+  /* ---------- passerelle pour les autres modules (nutrition.js) ---------- */
+  window.App = {
+    get state() { return state; },
+    scriptVersion: 0,
+    commit, render, el, svgEl, $, openSheet, closeSheet, selectEl, tile, ax, today, fmtDate, plural, weekKey, daysBetween, cardioMinutes,
+  };
 
   /* ---------- export / import (filet de sécurité) ---------- */
   $('#btnExport').addEventListener('click', () => {
@@ -850,11 +812,17 @@
     }
     Sync.onStatus(setStatus);
     let remote;
-    try { remote = migrate(await Sync.load()); }
+    try { const got = await Sync.load(); remote = migrate(got.state); window.App.scriptVersion = got.v || 1; }
     catch (err) { setStatus('err', navigator.onLine ? 'Impossible de lire Google Sheets — données locales affichées' : 'Hors-ligne — données locales affichées', navigator.onLine ? String(err.message || err) : ''); if (Sync.hasOutbox()) Sync.scheduleSave(state, 5000); return; }
-    if (remote && remote.rev > state.rev) { state = remote; writeCache(state); render(); setStatus('ok', 'Synchronisé avec Google Sheets'); }
-    else if (state.rev > (remote?.rev ?? 0) || (Sync.hasOutbox() && state.rev)) Sync.scheduleSave(state, 0);
-    else setStatus('ok', remote ? 'Synchronisé avec Google Sheets' : 'Google Sheets prêt — ajoute un exercice');
+    // journal nutrition : les jours modifiés ici et pas encore envoyés gagnent toujours sur la feuille
+    const dirty = Object.fromEntries(Sync.dirtyDays().filter(d => state.nutrition?.[d]).map(d => [d, state.nutrition[d]]));
+    if (remote && remote.rev > state.rev) { state = { ...remote, nutrition: { ...remote.nutrition, ...dirty } }; writeCache(state); render(); setStatus('ok', 'Synchronisé avec Google Sheets'); }
+    else {
+      if (remote) { state = { ...state, nutrition: { ...remote.nutrition, ...state.nutrition } }; writeCache(state); }
+      if (state.rev > (remote?.rev ?? 0) || (Sync.hasOutbox() && state.rev)) Sync.scheduleSave(state, 0);
+      else setStatus('ok', remote ? 'Synchronisé avec Google Sheets' : 'Google Sheets prêt — ajoute un exercice');
+    }
+    if (tab === 'journal') render();
   }
   boot();
 })();

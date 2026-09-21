@@ -77,7 +77,7 @@ with sync_playwright() as p:
     # réglages + poids
     pg.click("#btnSettings"); pg.select_option("#gRest", "120"); pg.select_option("#gGoal", "4"); pg.click("text=Enregistrer"); synced(pg)
     chip = pg.locator(".chips-top .chip").first.text_content()
-    pg.click("#tabStats"); pg.fill("#wIn", "112.4"); pg.press("#wIn", "Enter"); synced(pg)
+    pg.click("#tabJournal"); pg.fill("#wIn", "112.4"); pg.press("#wIn", "Enter"); synced(pg); pg.click("#tabStats")
     weight_tiles = pg.locator("#viewStats .tiles").nth(1).locator(".tile .v").all_text_contents()
     axes = pg.locator(".axes .ax b").all_text_contents()
     pg.screenshot(path="/private/tmp/claude-501/-Users-mehdiabdesslem-CLAUDE/e8b545d5-1cc2-40c9-875c-49dbbd9ef42e/scratchpad/stats2.png", full_page=True)

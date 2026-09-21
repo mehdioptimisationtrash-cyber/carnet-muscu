@@ -45,6 +45,7 @@
 
   <div class="tabs" role="tablist">
     <button class="tab" id="tabSeance" role="tab" aria-selected="true" type="button">Séance</button>
+    <button class="tab" id="tabJournal" role="tab" aria-selected="false" type="button">Journal</button>
     <button class="tab" id="tabStats" role="tab" aria-selected="false" type="button">Stats</button>
   </div>
 
@@ -57,6 +58,7 @@
     <div class="add"><span>+</span><input id="addExo" placeholder="Nouvel exercice… (Entrée pour ajouter)" enterkeyhint="done"></div>
   </section>
 
+  <section id="viewJournal" hidden></section>
   <section id="viewStats" hidden></section>
 </main>
 
@@ -73,6 +75,7 @@
 
 <script src="./config.js"></script>
 <script src="./sync.js"></script>
+<script src="./nutrition.js"></script>
 <script src="./app.js"></script>
 <script>
   if ('serviceWorker' in navigator) {
