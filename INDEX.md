@@ -59,6 +59,13 @@ Déploiement : `git push` (Pages sur `main`, racine). Penser à `CACHE_VERSION` 
 - Un POST vers Apps Script répond par une redirection 302 vers `script.googleusercontent.com/macros/echo` : les navigateurs la suivent et lisent bien `{"ok":true}`. Python `urllib` la suit mal (renvoie `unauthorized` alors que l'écriture a eu lieu) — utiliser Playwright pour tester, pas `curl`/`urllib`.
 - `curl` est refusé par les permissions de la session Claude Code chez Mehdi.
 
+## Cardio & pont Apple Watch (2026-09-21)
+- **Cardio chronométré** avant et/ou après la muscu : choisi dans l'écran de départ (`#scAvant`/`#scApres`, mémorisé dans `settings.cardio`), ou ajouté à la volée (« + Cardio avant/après »). État : `session.cardio = { avant|apres: {type, startedAt, sec, done} | null }` — le chrono se calcule depuis `startedAt` (survit à la mise en veille). « Corriger » pour rectifier la durée. Historique : `entry.cardio = [{pos,type,sec}]` ; XP = 2/min (plafond 60 par bloc) ; séance « cardio seul » possible. Stats : tuile « Cardio cette semaine x/150 min » + axe d'amélioration (repère OMS 150 min, cardio après la muscu).
+- **Apple Watch** : une app web n'a pas accès à HealthKit → on passe par l'app **Raccourcis** (`shortcuts://run-shortcut?name=…`, fonction `runShortcut`, activable dans ⚙︎ `settings.apple`). Raccourcis attendus (noms exacts, constante `SHORTCUTS`) : `Muscu Renfo`, `Muscu Elliptique`, `Muscu Marche`, `Muscu Vélo`, `Muscu Rameur`, `Muscu Course`, `Muscu Fin` — chacun = « Démarrer l'exercice » + « Ouvrir l'app Muscu ». Ordre : départ sans cardio avant → Renfo ; cardio Démarrer → type ; fin du cardio avant → Renfo ; Terminer/Annuler → Fin. Test : `window.__shortcutLog` (couture de test, `tools/e2e_cardio.py`).
+
+## Piste nutrition (non codée, en discussion)
+Recommandation faite à Mehdi le 2026-09-21 : l'intégrer à la même app (3e onglet + bandeau calendrier « Journal »), version légère centrée calories + protéines, repas favoris, recherche Open Food Facts ; stockage dans un onglet `nutrition` séparé de la feuille (1 ligne/jour) car la cellule `state` est limitée à 50 000 caractères → demandera une nouvelle version de `Code.gs`. Attendre sa validation avant de coder.
+
 ## Logique anti-doublon (2026-09-18)
 - `finishSession()` : si `state.history.at(-1).date === today()`, la nouvelle séance **fusionne** avec la précédente (`mergeEntries`) au lieu de créer une 2e entrée — additionne sets/volume/xp/défis, union prs/paliers, `exos` = dernière valeur par id, `light` = ET des deux. Pas de bonus `XP.session` ni de bonus de série sur une reprise (`continuation`).
 - `weekCount()`/les chips comptent des **entrées d'historique**, donc dépendent de cette dédup par date — ne pas la retirer sans revoir ces compteurs.

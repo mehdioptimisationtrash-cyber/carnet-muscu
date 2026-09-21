@@ -4,7 +4,12 @@
   const HISTORY_MAX = 120;
   const WEIGHTS_MAX = 400;
   const LIGHT_FACTOR = 0.9;          // séance légère : charges × 0,9
-  const XP = { set: 10, hit: 5, beat: 5, challenge: 10, palier: 40, pr: 30, session: 50, streakPerWeek: 10, streakMax: 50, light: 0.5 };
+  const XP = { set: 10, hit: 5, beat: 5, challenge: 10, palier: 40, pr: 30, session: 50, streakPerWeek: 10, streakMax: 50, light: 0.5, cardioMin: 2, cardioCap: 60 };
+  const CARDIO_WEEK_TARGET_MIN = 150;   // repère OMS : 150 min/semaine d'intensité modérée
+  const CARDIO = { elliptique: 'Elliptique', marche: 'Marche sur tapis', velo: 'Vélo', rameur: 'Rameur', course: 'Course sur tapis' };
+  const CARDIO_POS = { avant: 'Cardio avant', apres: 'Cardio après' };
+  // Raccourcis iOS à créer une fois (voir ⚙︎ Réglages → Apple Watch) : l'app les lance au bon moment.
+  const SHORTCUTS = { renfo: 'Muscu Renfo', fin: 'Muscu Fin', elliptique: 'Muscu Elliptique', marche: 'Muscu Marche', velo: 'Muscu Vélo', rameur: 'Muscu Rameur', course: 'Muscu Course' };
   const TITLES = ['Rookie', 'Régulier', 'Solide', 'Costaud', 'Machine', 'Bête de salle', 'Légende'];
   const BADGES = [
     { id: 'first', e: '🎯', n: 'Première séance', t: (s) => s.history.length >= 1 },
@@ -54,7 +59,7 @@
   let tab = 'seance';
   let restTimer = null, restEnd = 0, clockTimer = null;
 
-  const defaultSettings = () => ({ rest: 90, weeklyGoal: 3, autoDeload: true });
+  const defaultSettings = () => ({ rest: 90, weeklyGoal: 3, autoDeload: true, apple: false, cardio: { avant: 'none', apres: 'none' } });
   const mkExo = (name, sets, opts = {}) => ({ id: uid(), name, mode: 'reps', step: 2, repMin: 8, repMax: 15, sets, last: null, best: null, stalled: 0, ...opts });
   const seed = () => ({ v: 2, rev: 0, xp: 0, settings: defaultSettings(), exos: [], session: null, history: [], weights: [] });
   const migrate = (d) => {
@@ -74,6 +79,19 @@
   }
   const updExo = (id, fn) => ({ ...state, exos: state.exos.map(e => e.id === id ? fn(e) : e) });
   const targetsOf = (e) => (state.session?.targets?.[e.id]) || e.sets;
+
+  /* ---------- cardio chronométré & pont Apple (Raccourcis iOS) ---------- */
+  const cardioSec = (c) => c ? c.sec + (c.startedAt ? Math.floor((Date.now() - c.startedAt) / 1000) : 0) : 0;
+  const fmtClock = (sec) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+  const cardioMinutes = (h) => Math.round((h.cardio || []).reduce((a, c) => a + c.sec, 0) / 60);
+  const updCardio = (pos, fn) => ({ ...state, session: { ...state.session, cardio: { ...state.session.cardio, [pos]: fn(state.session.cardio[pos]) } } });
+  function runShortcut(key) {
+    if (!state.settings.apple) return;
+    const name = SHORTCUTS[key]; if (!name) return;
+    if (Array.isArray(window.__shortcutLog)) { window.__shortcutLog.push(name); return; }   // couture de test
+    // on laisse l'état s'enregistrer, puis on passe la main à Raccourcis (qui rouvre l'app ensuite)
+    setTimeout(() => { window.location.href = `shortcuts://run-shortcut?name=${encodeURIComponent(name)}`; }, 120);
+  }
 
   /* ---------- crans de charge : pile de plaques (machine) ou pas fixe (haltères) ---------- */
   const hasStack = (e) => Array.isArray(e.stack) && e.stack.length > 1;
@@ -154,6 +172,7 @@
     renderDock();
   }
   const weekCount = () => state.history.filter(h => weekKey(h.date) === weekKey(today())).length;
+  const weekCardioMin = () => state.history.filter(h => weekKey(h.date) === weekKey(today())).reduce((a, h) => a + cardioMinutes(h), 0);
   function renderHeader() {
     const lvl = level(state.xp), lo = xpForLevel(lvl), hi = xpForLevel(lvl + 1);
     $('#lvlNum').textContent = lvl;
@@ -190,7 +209,48 @@
     const root = $('#exos');
     root.replaceChildren();
     const currentId = inS ? state.exos.find(e => (state.session.results[e.id] || []).some(r => r.done === null))?.id : null;
+    if (inS) root.append(state.session.cardio?.avant ? cardioCard('avant') : addCardioBtn('avant'));
     for (const e of state.exos) root.append(exoCard(e, inS, e.id === currentId));
+    if (inS) root.append(state.session.cardio?.apres ? cardioCard('apres') : addCardioBtn('apres'));
+  }
+  const newCardio = (type) => ({ type, startedAt: null, sec: 0, done: false });
+  const addCardioBtn = (pos) => el('button', { class: 'add-cardio', type: 'button', text: `+ ${CARDIO_POS[pos]}`, onclick: () => {
+    const type = state.settings.cardio?.[pos] !== 'none' && state.settings.cardio?.[pos] || (pos === 'avant' ? 'marche' : 'elliptique');
+    commit({ ...state, session: { ...state.session, cardio: { ...(state.session.cardio || {}), [pos]: newCardio(type) } } });
+  } });
+  function cardioCard(pos) {
+    const c = state.session.cardio[pos];
+    const running = !!c.startedAt, sec = cardioSec(c);
+    const selType = selectEl(`ct-${pos}`, Object.keys(CARDIO), c.type, (o) => CARDIO[o]);
+    selType.disabled = running;
+    selType.setAttribute('aria-label', 'Type de cardio');
+    selType.addEventListener('change', () => commit(updCardio(pos, x => ({ ...x, type: selType.value }))));
+    const main = running
+      ? el('button', { class: 'btn warn big', type: 'button', text: '■ Arrêter', onclick: () => stopCardio(pos) })
+      : el('button', { class: 'btn primary big', type: 'button', text: sec ? '▶ Reprendre' : '▶ Démarrer', onclick: () => startCardio(pos) });
+    return el('div', { class: `cardio${running ? ' running' : ''}${c.done && !running ? ' done' : ''}`, id: `cardio-${pos}` },
+      el('div', { class: 'cardio-head' }, el('b', { text: `🏃 ${CARDIO_POS[pos]}` }), selType),
+      el('div', { class: 'cardio-body' },
+        el('span', { class: 'cardio-time tnum', 'data-cardio': pos, text: fmtClock(sec) }), main,
+        ...(!running ? [el('button', { class: 'btn ghost', type: 'button', text: sec ? 'Corriger' : 'Retirer', onclick: () => sec ? openCardioFix(pos) : commit(updCardio(pos, () => null)) })] : [])));
+  }
+  function startCardio(pos) {
+    const other = pos === 'avant' ? 'apres' : 'avant';
+    let next = state;
+    if (state.session.cardio?.[other]?.startedAt) next = { ...next, session: { ...next.session, cardio: { ...next.session.cardio, [other]: { ...next.session.cardio[other], sec: cardioSec(next.session.cardio[other]), startedAt: null, done: true } } } };
+    commit({ ...next, session: { ...next.session, cardio: { ...next.session.cardio, [pos]: { ...next.session.cardio[pos], startedAt: Date.now() } } } });
+    runShortcut(state.session.cardio[pos].type);
+  }
+  function stopCardio(pos) {
+    commit(updCardio(pos, x => ({ ...x, sec: cardioSec(x), startedAt: null, done: true })));
+    if (pos === 'avant') runShortcut('renfo');       // échauffement fini → la montre passe en renforcement
+  }
+  function openCardioFix(pos) {
+    const c = state.session.cardio[pos];
+    const selMin = selectEl('cfMin', Array.from({ length: 121 }, (_, i) => i), Math.round(cardioSec(c) / 60), (o) => `${o} min`);
+    openSheet(el('h3', { text: CARDIO_POS[pos] }), el('div', { class: 'sub', text: 'Chrono oublié ou arrêté trop tard ? Corrige la durée.' }),
+      el('div', { class: 'fields' }, el('div', { class: 'field wide' }, el('label', { for: 'cfMin', text: 'Durée réelle' }), selMin)),
+      el('div', { class: 'actions' }, el('button', { class: 'btn primary big', type: 'button', text: 'Enregistrer', onclick: () => { commit(updCardio(pos, x => ({ ...x, sec: Number(selMin.value) * 60, startedAt: null, done: true }))); closeSheet(); } })));
   }
   function exoCard(e, inS, current) {
     const res = inS ? (state.session.results[e.id] || []) : [];
@@ -236,7 +296,8 @@
   function tickClock() {
     if (!state.session) return;
     const sec = Math.floor((Date.now() - state.session.startedAt) / 1000);
-    $('#dockTime').textContent = `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+    $('#dockTime').textContent = fmtClock(sec);
+    document.querySelectorAll('[data-cardio]').forEach(n => { n.textContent = fmtClock(cardioSec(state.session.cardio?.[n.dataset.cardio])); });
   }
 
   /* ---------- feuilles ---------- */
@@ -374,14 +435,34 @@
     const selRest = selectEl('gRest', [45, 60, 90, 120, 150, 180], st.rest, (o) => `${o} s`);
     const selGoal = selectEl('gGoal', [1, 2, 3, 4, 5, 6], st.weeklyGoal, (o) => plural(o, 'séance'));
     const selAuto = selectEl('gAuto', ['oui', 'non'], st.autoDeload ? 'oui' : 'non', (o) => o === 'oui' ? 'Oui — après 2 échecs, −1 cran' : 'Non — je décide moi-même');
+    const selApple = selectEl('gApple', ['non', 'oui'], st.apple ? 'oui' : 'non', (o) => o === 'oui' ? 'Oui — lancer les exercices sur la montre' : 'Non');
     openSheet(
       el('h3', { text: 'Réglages' }),
-      el('div', { class: 'sub', text: 'Repos, objectif hebdo, recalibrage automatique' }),
+      el('div', { class: 'sub', text: 'Repos, objectif hebdo, recalibrage, Apple Watch' }),
       el('div', { class: 'fields' },
         el('div', { class: 'field' }, el('label', { for: 'gRest', text: 'Repos entre séries' }), selRest),
         el('div', { class: 'field' }, el('label', { for: 'gGoal', text: 'Objectif par semaine' }), selGoal),
-        el('div', { class: 'field wide' }, el('label', { for: 'gAuto', text: 'Recalibrage auto d’un défi raté 2 fois' }), selAuto)),
-      el('div', { class: 'actions' }, el('button', { class: 'btn primary big', type: 'button', text: 'Enregistrer', onclick: () => { commit({ ...state, settings: { ...st, rest: Number(selRest.value), weeklyGoal: Number(selGoal.value), autoDeload: selAuto.value === 'oui' } }); closeSheet(); } })));
+        el('div', { class: 'field wide' }, el('label', { for: 'gAuto', text: 'Recalibrage auto d’un défi raté 2 fois' }), selAuto),
+        el('div', { class: 'field wide' }, el('label', { for: 'gApple', text: '⌚ Apple Watch (via l’app Raccourcis)' }), selApple,
+          el('button', { class: 'btn ghost', type: 'button', style: 'margin-top:6px', text: 'Comment créer les raccourcis ?', onclick: openAppleHelp }))),
+      el('div', { class: 'actions' }, el('button', { class: 'btn primary big', type: 'button', text: 'Enregistrer', onclick: () => { commit({ ...state, settings: { ...st, rest: Number(selRest.value), weeklyGoal: Number(selGoal.value), autoDeload: selAuto.value === 'oui', apple: selApple.value === 'oui' } }); closeSheet(); } })));
+  }
+  function openAppleHelp() {
+    const rows = [
+      [SHORTCUTS.renfo, 'Renforcement musculaire traditionnel'], [SHORTCUTS.elliptique, 'Elliptique'], [SHORTCUTS.marche, 'Marche en salle'],
+      [SHORTCUTS.velo, 'Vélo en salle'], [SHORTCUTS.rameur, 'Rameur'], [SHORTCUTS.course, 'Course en salle'],
+    ];
+    const list = el('ul', { class: 'list' });
+    for (const [name, type] of rows) list.append(el('li', { html: `<b>${name}</b><small>Démarrer l’exercice : ${type} → Ouvrir l’app : Muscu</small>` }));
+    list.append(el('li', { html: `<b>${SHORTCUTS.fin}</b><small>Terminer l’exercice (si l’action existe chez toi) → Ouvrir l’app : Muscu. Sinon, termine sur la montre.</small>` }));
+    openSheet(
+      el('h3', { text: '⌚ Raccourcis à créer (une seule fois)' }),
+      el('div', { class: 'sub', text: 'App Raccourcis → + → nomme le raccourci EXACTEMENT comme ci-dessous → ajoute les 2 actions. Crée seulement ceux dont tu te sers.' }),
+      list,
+      el('p', { class: 'hint', style: 'margin-top:8px', text: 'Une app web n’a pas le droit de piloter la montre directement : elle passe la main à Raccourcis, qui lance l’exercice puis rouvre Muscu. Tu verras donc un aller-retour d’une seconde.' }),
+      el('div', { class: 'actions', style: 'margin-top:12px' },
+        el('button', { class: 'btn', type: 'button', text: `Tester « ${SHORTCUTS.renfo} »`, onclick: () => { window.location.href = `shortcuts://run-shortcut?name=${encodeURIComponent(SHORTCUTS.renfo)}`; } }),
+        el('button', { class: 'btn primary', type: 'button', text: 'Retour', onclick: openSettings })));
   }
   function moveExo(i, d) {
     const j = i + d; if (j < 0 || j >= state.exos.length) return;
@@ -419,7 +500,10 @@
       el('h3', { text: n ? `⚡ ${plural(n, 'défi')} aujourd’hui` : 'C’est parti' }),
       el('div', { class: 'sub', text: `Jusqu’à +${potentialXp()} XP · ${weekCount()}/${state.settings.weeklyGoal} séances cette semaine` }),
       list,
-      el('div', { class: 'actions', style: 'margin-top:14px' },
+      el('div', { class: 'fields', style: 'margin-top:12px' },
+        el('div', { class: 'field' }, el('label', { for: 'scAvant', text: '🏃 Cardio avant' }), selectEl('scAvant', ['none', ...Object.keys(CARDIO)], state.settings.cardio?.avant || 'none', (o) => o === 'none' ? 'Aucun' : CARDIO[o])),
+        el('div', { class: 'field' }, el('label', { for: 'scApres', text: '🏃 Cardio après' }), selectEl('scApres', ['none', ...Object.keys(CARDIO)], state.settings.cardio?.apres || 'none', (o) => o === 'none' ? 'Aucun' : CARDIO[o]))),
+      el('div', { class: 'actions', style: 'margin-top:4px' },
         el('button', { class: 'btn primary big', type: 'button', text: 'Séance normale', onclick: () => startSession(false) }),
         el('button', { class: 'btn', type: 'button', text: 'Séance légère (−10 %)', onclick: () => startSession(true) })),
       el('p', { class: 'hint', style: 'margin-top:8px', text: 'Séance légère = fatigue, peu de sommeil, grosse journée : charges −10 %, aucun défi, cibles inchangées, XP ÷ 2. On maintient, on ne casse pas la série.' }));
@@ -429,14 +513,17 @@
     const lighten = (e, c) => hasStack(e) ? (prevCharge(e, c) ?? c) : Math.max(0, Math.min(roundStep(c * LIGHT_FACTOR, e.step), round1(c - e.step)));
     const targets = Object.fromEntries(state.exos.map(e => [e.id, e.sets.map(t => light && typeof t.charge === 'number' && t.charge > 0 ? { ...t, charge: lighten(e, t.charge) } : { ...t })]));
     const results = Object.fromEntries(state.exos.map(e => [e.id, targets[e.id].map(t => ({ charge: t.charge, reps: t.reps, done: null }))]));
-    commit({ ...state, session: { startedAt: Date.now(), results, targets, light } });
+    const pick = { avant: $('#scAvant')?.value || 'none', apres: $('#scApres')?.value || 'none' };   // choix mémorisé pour la prochaine fois
+    const cardio = { avant: pick.avant === 'none' ? null : newCardio(pick.avant), apres: pick.apres === 'none' ? null : newCardio(pick.apres) };
+    commit({ ...state, settings: { ...state.settings, cardio: pick }, session: { startedAt: Date.now(), results, targets, light, cardio } });
     closeSheet();
     window.scrollTo({ top: $('#exos').offsetTop - 60, behavior: 'smooth' });
+    if (!cardio.avant) runShortcut('renfo');   // avec un cardio avant, c'est son bouton Démarrer qui lance la montre
   }
-  $('#btnCancel').addEventListener('click', () => { if (confirm('Annuler la séance en cours ? Rien ne sera enregistré.')) { stopRest(); commit({ ...state, session: null }); } });
+  $('#btnCancel').addEventListener('click', () => { if (confirm('Annuler la séance en cours ? Rien ne sera enregistré.')) { stopRest(); commit({ ...state, session: null }); runShortcut('fin'); } });
   $('#btnFinish').addEventListener('click', () => {
-    const any = Object.values(state.session.results).flat().some(r => r.done !== null);
-    if (!any) { alert('Valide au moins une série avant de terminer (ou annule la séance).'); return; }
+    const any = Object.values(state.session.results).flat().some(r => r.done !== null) || ['avant', 'apres'].some(p => cardioSec(state.session.cardio?.[p]) > 0);
+    if (!any) { alert('Valide au moins une série ou un cardio avant de terminer (ou annule la séance).'); return; }
     finishSession();
   });
   function startRest() {
@@ -497,9 +584,11 @@
       return { ...e, sets: next.map(({ up, deload, ...t }) => t), last: res, best, stalled: done ? (progressed ? 0 : e.stalled + 1) : e.stalled };
     });
     if (light) xp = Math.round(xp * XP.light);
+    const cardio = ['avant', 'apres'].map(pos => { const c = s.cardio?.[pos]; const sec = cardioSec(c); return sec > 0 ? { pos, type: c.type, sec } : null; }).filter(Boolean);
+    xp += cardio.reduce((a, c) => a + Math.min(XP.cardioCap, Math.round(c.sec / 60) * XP.cardioMin), 0);
     const streak = streakWeeks({ history: continuation ? state.history : [...state.history, { date }] });
     if (!continuation) xp += Math.min(XP.streakMax, XP.streakPerWeek * Math.max(0, streak - 1));
-    let entry = { date, at: Date.now(), min: Math.round((Date.now() - s.startedAt) / 60000), volume: Math.round(volume), xp, setsDone, setsTotal, fails, prs, paliers, light, challenges: { total: chalTotal, won: chalWon }, exos: exosLog };
+    let entry = { date, at: Date.now(), min: Math.round((Date.now() - s.startedAt) / 60000), volume: Math.round(volume), xp, setsDone, setsTotal, fails, prs, paliers, light, challenges: { total: chalTotal, won: chalWon }, cardio, exos: exosLog };
     let history;
     if (continuation) {
       entry = mergeEntries(prevEntry, entry);
@@ -510,8 +599,9 @@
     const lvlBefore = level(state.xp);
     const nextState = { ...state, exos, session: null, xp: state.xp + xp, history };
     commit(nextState);
-    showSummary(entry, changes, failed, lvlBefore, level(nextState.xp), streak, continuation);
+    showSummary(entry, changes, failed, lvlBefore, level(nextState.xp), streak, continuation, cardio);
     if (!light) confetti();
+    runShortcut('fin');   // termine l'exercice sur la montre (si le pont Apple est activé)
   }
   // Fusionne une reprise de séance (même jour) avec l'entrée déjà enregistrée : additionne les compteurs,
   // remplace les cibles/records (déjà à jour dans `state.exos`), garde le détail le plus récent par exercice.
@@ -521,12 +611,14 @@
       xp: (a.xp || 0) + (b.xp || 0), setsDone: a.setsDone + b.setsDone, setsTotal: a.setsTotal + b.setsTotal, fails: a.fails + b.fails,
       prs: [...new Set([...a.prs, ...b.prs])], paliers: [...new Set([...a.paliers, ...b.paliers])], light: a.light && b.light,
       challenges: { total: (a.challenges?.total || 0) + (b.challenges?.total || 0), won: (a.challenges?.won || 0) + (b.challenges?.won || 0) },
+      cardio: [...(a.cardio || []), ...(b.cardio || [])],
       exos: { ...a.exos, ...b.exos },
     };
   }
-  function showSummary(h, changes, failed, l0, l1, streak, continuation) {
+  function showSummary(h, changes, failed, l0, l1, streak, continuation, cardioNow = []) {
     const list = el('ul', { class: 'list' });
     if (l1 > l0) list.append(el('li', { class: 'gold', html: `🎉 <b>Niveau ${l1} — ${titleFor(l1)}</b><small>Tu passes un cap.</small>` }));
+    if (cardioNow.length) list.append(el('li', { class: 'good', html: `🏃 <b>Cardio : ${Math.round(cardioNow.reduce((a, c) => a + c.sec, 0) / 60)} min</b><small>${cardioNow.map(c => `${CARDIO[c.type] || c.type} ${Math.round(c.sec / 60)} min (${c.pos === 'avant' ? 'avant' : 'après'})`).join(' · ')}</small>` }));
     if (h.challenges.total) list.append(el('li', { class: h.challenges.won === h.challenges.total ? 'gold' : 'good', html: `⚡ <b>Défis : ${h.challenges.won}/${h.challenges.total} réussis</b><small>${h.challenges.won === h.challenges.total ? 'Carton plein — les cibles montent.' : 'Les défis ratés restent en place : on les retente.'}</small>` }));
     for (const n of h.paliers) list.append(el('li', { class: 'gold', html: `⬆️ <b>Palier franchi</b> — ${n}<small>Charge augmentée pour la prochaine fois.</small>` }));
     for (const n of h.prs) list.append(el('li', { class: 'gold', html: `🏆 <b>Nouveau record</b> — ${n}` }));
@@ -634,6 +726,7 @@
       tile('Cette semaine', `${week}/${state.settings.weeklyGoal}`, ''),
       tile('Semaines d’affilée', streakWeeks(state), '🔥'),
       tile('Dernier volume', last ? (last.volume / 1000).toFixed(1) : '—', last ? `t${prev ? (last.volume >= prev.volume ? ' ▲' : ' ▼') : ''}` : ''),
+      tile('Cardio cette semaine', weekCardioMin(), ` / ${CARDIO_WEEK_TARGET_MIN} min`),
     ));
     v.append(el('h2', { class: 'sec', text: 'Axes d’amélioration' }), axesBlock());
     v.append(weightBlock());
@@ -693,6 +786,9 @@
     if (gap >= 7) out.append(ax('warn', `Dernière séance il y a ${gap} jours`, 'La régularité pèse plus que l’intensité : cale une séance cette semaine pour garder la série.'));
     const wk = weekCount(), goal = state.settings.weeklyGoal;
     if (wk < goal && gap < 7) out.append(ax('', `${wk}/${goal} séances cette semaine`, `Encore ${plural(goal - wk, 'séance')} pour l’objectif. En perte de poids, 3 séances complètes par semaine suffisent largement si chaque série est un défi.`));
+    const cardioWk = weekCardioMin();
+    if (cardioWk < CARDIO_WEEK_TARGET_MIN) out.append(ax('', `Cardio : ${cardioWk}/${CARDIO_WEEK_TARGET_MIN} min cette semaine`, 'En perte de poids, vise 150 min/semaine d’intensité modérée (elliptique, marche inclinée : tu peux parler mais pas chanter). Place-le APRÈS la muscu pour garder ta force sur les défis ; 5–10 min avant suffisent comme échauffement. La marche du quotidien compte aussi.'));
+    else out.append(ax('good', `Cardio : ${cardioWk} min cette semaine — objectif atteint`, 'Inutile d’en faire beaucoup plus : au-delà, c’est la récupération (et donc tes charges) qui trinque.'));
     const chal = allChallenges(), n = chal.reduce((a, x) => a + x.cs.length, 0);
     if (n) out.append(ax('good', `⚡ ${plural(n, 'défi')} t’attendent à la prochaine séance`, chal.map(x => `${x.e.name} : ${challengeText(x.e, x.cs)}`).join(' · ')));
     const rec = H.slice(-3).filter(h => !h.light && h.challenges?.total);

@@ -138,6 +138,18 @@ h4.sec { font-size: 13px; margin: 14px 0 6px; text-transform: uppercase; letter-
 .add input { flex: 1; min-width: 0; border: 0; background: transparent; font: inherit; font-size: 16px; color: var(--text); outline: none; padding: 2px 4px; }
 .add:focus-within { background: var(--bg-soft); border-radius: 6px; }
 
+/* ---------- cardio chronométré ---------- */
+.cardio { margin: 10px 0; padding: 12px 14px; border-radius: 12px; background: var(--accent-soft); border: 1.5px solid transparent; }
+.cardio.running { border-color: var(--accent); }
+.cardio.done { background: var(--good-soft); }
+.cardio-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.cardio-head select { height: 34px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); font: inherit; font-size: 14px; font-weight: 500; padding: 0 8px; max-width: 60%; }
+.cardio-body { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.cardio-time { font-size: 34px; font-weight: 800; line-height: 1; min-width: 96px; }
+.cardio.running .cardio-time { color: var(--accent); }
+.add-cardio { display: block; width: 100%; margin: 8px 0; padding: 9px; border-radius: 10px; border: 1.5px dashed var(--line-strong); background: none; color: var(--muted); font-size: 14px; cursor: pointer; }
+.add-cardio:hover { color: var(--text); border-color: var(--accent); }
+
 /* ---------- barre de séance (bas) ---------- */
 .dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; background: var(--bg-card); border-top: 1px solid var(--line); box-shadow: 0 -4px 24px rgba(0,0,0,.08);
   padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px)); }
