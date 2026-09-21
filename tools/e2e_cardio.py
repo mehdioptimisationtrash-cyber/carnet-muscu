@@ -18,6 +18,10 @@ def fake_sheets(route, request):
 
 def synced(pg): pg.wait_for_function("document.querySelector('#status').dataset.state === 'ok'", timeout=15000)
 def log(pg): return pg.evaluate("window.__shortcutLog.slice()")
+def toast(pg):
+    t = pg.locator(".toast"); txt = t.text_content() if t.count() else None
+    if t.count(): t.click()
+    return txt
 
 with sync_playwright() as p:
     b = p.chromium.launch()
@@ -33,22 +37,22 @@ with sync_playwright() as p:
     pg.fill("#addExo", "Développé assis"); pg.press("#addExo", "Enter"); synced(pg)
     # active le pont Apple
     pg.click("#btnSettings"); pg.select_option("#gApple", "oui")
-    pg.click("text=Comment créer les raccourcis"); help_items = pg.locator(".sheet .list li b").all_text_contents()
+    pg.click("text=Comment ça marche"); help_items = pg.locator(".sheet .list li b").all_text_contents()
     pg.click(".sheet .actions >> text=Retour"); pg.select_option("#gApple", "oui"); pg.click(".sheet .actions >> text=Enregistrer"); synced(pg)
 
     # séance avec cardio avant (marche) + après (elliptique)
     pg.click("#btnStart"); pg.select_option("#scAvant", "marche"); pg.select_option("#scApres", "elliptique")
     pg.click("text=Séance normale"); pg.wait_for_selector("#dock:not([hidden])")
     at_start = log(pg)                                   # rien : le cardio avant lancera la montre
-    pg.click("#cardio-avant >> text=Démarrer"); time.sleep(2.2)
+    pg.click("#cardio-avant >> text=Démarrer"); toast1 = toast(pg); time.sleep(2.2)
     running_time = pg.text_content("#cardio-avant .cardio-time")
-    pg.click("#cardio-avant >> text=Arrêter")
+    pg.click("#cardio-avant >> text=Arrêter"); toast2 = toast(pg)
     after_warmup = log(pg)                               # Muscu Marche puis Muscu Renfo
     pg.click(".exo >> nth=0 >> .set >> nth=0"); pg.click("text=/Réussie/")
-    pg.click("#cardio-apres >> text=Démarrer"); time.sleep(1.2); pg.click("#cardio-apres >> text=Arrêter")
+    pg.click("#cardio-apres >> text=Démarrer"); toast(pg); time.sleep(1.2); pg.click("#cardio-apres >> text=Arrêter")
     pg.click("#cardio-apres >> text=Corriger"); pg.select_option("#cfMin", "12"); pg.click(".sheet >> text=Enregistrer")
     fixed_time = pg.text_content("#cardio-apres .cardio-time")
-    pg.click("#btnFinish"); pg.wait_for_selector(".summary")
+    pg.click("#btnFinish"); pg.wait_for_selector(".summary"); toast3 = toast(pg)
     cardio_line = pg.locator(".summary .list li").filter(has_text="Cardio").all_text_contents()
     xp = pg.text_content(".xp-big")
     final_log = log(pg)
@@ -61,7 +65,7 @@ with sync_playwright() as p:
     # mémoire du choix + séance cardio seul
     pg.click("#tabSeance"); pg.click("#btnStart")
     remembered = pg.input_value("#scAvant"), pg.input_value("#scApres")
-    pg.select_option("#scAvant", "none"); pg.click("text=Séance normale"); pg.wait_for_selector("#dock:not([hidden])")
+    pg.select_option("#scAvant", "none"); pg.click("text=Séance normale"); pg.wait_for_selector("#dock:not([hidden])"); toast(pg)
     no_warmup_log = log(pg)[len(final_log):]             # sans cardio avant : Renfo lancé dès le départ
     pg.screenshot(path="/private/tmp/claude-501/-Users-mehdiabdesslem-CLAUDE/e8b545d5-1cc2-40c9-875c-49dbbd9ef42e/scratchpad/cardio.png")
     b.close()
@@ -69,6 +73,7 @@ with sync_playwright() as p:
 print("aide raccourcis :", help_items)
 print("au démarrage (cardio avant prévu) :", at_start, "| chrono en marche :", running_time)
 print("après l'échauffement :", after_warmup)
+print("rappels affichés :", toast1, "|", toast2, "|", toast3)
 print("durée corrigée :", fixed_time, "| résumé :", cardio_line, "|", xp)
 print("raccourcis lancés sur toute la séance :", final_log)
 print("historique.cardio :", hist.get("cardio"))

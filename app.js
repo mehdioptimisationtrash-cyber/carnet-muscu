@@ -85,12 +85,21 @@
   const fmtClock = (sec) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
   const cardioMinutes = (h) => Math.round((h.cardio || []).reduce((a, c) => a + c.sec, 0) / 60);
   const updCardio = (pos, fn) => ({ ...state, session: { ...state.session, cardio: { ...state.session.cardio, [pos]: fn(state.session.cardio[pos]) } } });
+  // Apple n'autorise « Démarrer l'exercice » que depuis la montre (vérifié le 2026-09-21 : le raccourci échoue sur iPhone).
+  // Le carnet ne peut donc pas lancer la montre : il RAPPELLE quoi faire dessus, au bon moment.
+  const WATCH_TYPES = { renfo: 'Musculation traditionnelle', elliptique: 'Vélo elliptique', marche: 'Marche en intérieur', velo: 'Vélo en intérieur', rameur: 'Rameur', course: 'Course en intérieur' };
   function runShortcut(key) {
     if (!state.settings.apple) return;
     const name = SHORTCUTS[key]; if (!name) return;
-    if (Array.isArray(window.__shortcutLog)) { window.__shortcutLog.push(name); return; }   // couture de test
-    // on laisse l'état s'enregistrer, puis on passe la main à Raccourcis (qui rouvre l'app ensuite)
-    setTimeout(() => { window.location.href = `shortcuts://run-shortcut?name=${encodeURIComponent(name)}`; }, 120);
+    if (Array.isArray(window.__shortcutLog)) window.__shortcutLog.push(name);   // couture de test
+    toast(key === 'fin' ? '⌚ Termine l’exercice sur ta montre' : `⌚ Sur ta montre : lance « ${WATCH_TYPES[key]} »`, key === 'fin' ? '' : `ou ton raccourci « ${name} »`);
+  }
+  function toast(title, sub = '') {
+    document.querySelector('.toast')?.remove();
+    const t = el('button', { class: 'toast', type: 'button', 'aria-live': 'polite', onclick: () => t.remove() }, el('b', { text: title }), ...(sub ? [el('small', { text: sub })] : []));
+    document.body.append(t);
+    try { navigator.vibrate?.(80); } catch {}
+    setTimeout(() => t.remove(), 7000);
   }
 
   /* ---------- crans de charge : pile de plaques (machine) ou pas fixe (haltères) ---------- */
@@ -437,7 +446,7 @@
     const selRest = selectEl('gRest', [45, 60, 90, 120, 150, 180], st.rest, (o) => `${o} s`);
     const selGoal = selectEl('gGoal', [1, 2, 3, 4, 5, 6], st.weeklyGoal, (o) => plural(o, 'séance'));
     const selAuto = selectEl('gAuto', ['oui', 'non'], st.autoDeload ? 'oui' : 'non', (o) => o === 'oui' ? 'Oui — après 2 échecs, −1 cran' : 'Non — je décide moi-même');
-    const selApple = selectEl('gApple', ['non', 'oui'], st.apple ? 'oui' : 'non', (o) => o === 'oui' ? 'Oui — lancer les exercices sur la montre' : 'Non');
+    const selApple = selectEl('gApple', ['non', 'oui'], st.apple ? 'oui' : 'non', (o) => o === 'oui' ? 'Oui — me rappeler quoi lancer sur la montre' : 'Non');
     openSheet(
       el('h3', { text: 'Réglages' }),
       el('div', { class: 'sub', text: 'Repos, objectif hebdo, recalibrage, Apple Watch' }),
@@ -445,8 +454,8 @@
         el('div', { class: 'field' }, el('label', { for: 'gRest', text: 'Repos entre séries' }), selRest),
         el('div', { class: 'field' }, el('label', { for: 'gGoal', text: 'Objectif par semaine' }), selGoal),
         el('div', { class: 'field wide' }, el('label', { for: 'gAuto', text: 'Recalibrage auto d’un défi raté 2 fois' }), selAuto),
-        el('div', { class: 'field wide' }, el('label', { for: 'gApple', text: '⌚ Apple Watch (via l’app Raccourcis)' }), selApple,
-          el('button', { class: 'btn ghost', type: 'button', style: 'margin-top:6px', text: 'Comment créer les raccourcis ?', onclick: openAppleHelp }))),
+        el('div', { class: 'field wide' }, el('label', { for: 'gApple', text: '⌚ Rappels Apple Watch' }), selApple,
+          el('button', { class: 'btn ghost', type: 'button', style: 'margin-top:6px', text: 'Comment ça marche ?', onclick: openAppleHelp }))),
       el('div', { class: 'actions' }, el('button', { class: 'btn primary big', type: 'button', text: 'Enregistrer', onclick: () => { commit({ ...state, settings: { ...st, rest: Number(selRest.value), weeklyGoal: Number(selGoal.value), autoDeload: selAuto.value === 'oui', apple: selApple.value === 'oui' } }); closeSheet(); } })));
   }
   function openAppleHelp() {
@@ -455,16 +464,13 @@
       [SHORTCUTS.velo, 'Vélo en intérieur (Indoor Cycle)'], [SHORTCUTS.rameur, 'Rameur (Rower)'], [SHORTCUTS.course, 'Course en intérieur (Indoor Run)'],
     ];
     const list = el('ul', { class: 'list' });
-    for (const [name, type] of rows) list.append(el('li', { html: `<b>${name}</b><small>Une seule action — Démarrer l’exercice : ${type}, objectif libre</small>` }));
-    list.append(el('li', { html: `<b>${SHORTCUTS.fin}</b><small>Une seule action — Terminer l’exercice (si elle existe chez toi). Sinon, ne crée pas ce raccourci et termine sur la montre.</small>` }));
+    for (const [name, type] of rows) list.append(el('li', { html: `<b>${name}</b><small>Démarrer l’exercice : ${type}</small>` }));
     openSheet(
-      el('h3', { text: '⌚ Raccourcis à créer (une seule fois)' }),
-      el('div', { class: 'sub', text: 'App Raccourcis → + → nomme le raccourci EXACTEMENT comme ci-dessous → une seule action. Crée seulement ceux dont tu te sers.' }),
+      el('h3', { text: '⌚ Rappels Apple Watch' }),
+      el('div', { class: 'sub', text: 'Apple n’autorise le démarrage d’un exercice que depuis la montre : le carnet ne peut pas le faire à ta place. Il te rappelle donc quoi lancer, au démarrage, à chaque cardio et à la fin.' }),
+      el('p', { class: 'hint', text: 'Pour aller vite sur la montre : tes raccourcis ci-dessous y fonctionnent. Sur l’iPhone, appui long sur le raccourci → Détails → « Afficher sur l’Apple Watch », puis ajoute-le en complication sur ton cadran (ou sur le bouton Action d’une Ultra) : un tap au poignet.' }),
       list,
-      el('p', { class: 'hint', style: 'margin-top:8px', text: 'Une app web n’a pas le droit de piloter la montre : elle passe la main à Raccourcis, qui lance l’exercice. Pour revenir ici, touche « ◀ Muscu » en haut à gauche de l’écran (Raccourcis ne sait pas rouvrir une app web tout seul).' }),
-      el('div', { class: 'actions', style: 'margin-top:12px' },
-        el('button', { class: 'btn', type: 'button', text: `Tester « ${SHORTCUTS.renfo} »`, onclick: () => { window.location.href = `shortcuts://run-shortcut?name=${encodeURIComponent(SHORTCUTS.renfo)}`; } }),
-        el('button', { class: 'btn primary', type: 'button', text: 'Retour', onclick: openSettings })));
+      el('div', { class: 'actions', style: 'margin-top:12px' }, el('button', { class: 'btn primary', type: 'button', text: 'Retour', onclick: openSettings })));
   }
   function moveExo(i, d) {
     const j = i + d; if (j < 0 || j >= state.exos.length) return;
