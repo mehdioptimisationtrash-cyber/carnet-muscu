@@ -3,7 +3,7 @@
  * Appels Google (Apps Script) : jamais mis en cache.
  * À chaque déploiement, incrémente CACHE_VERSION pour forcer la mise à jour.
  */
-const CACHE_VERSION = 'v8';
+const CACHE_VERSION = 'v9';
 const CACHE_NAME = `carnet-muscu-${CACHE_VERSION}`;
 const ASSETS = [
   './', './index.html', './styles.css', './app.js', './nutrition.js', './sync.js', './config.js',

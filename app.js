@@ -451,17 +451,17 @@
   }
   function openAppleHelp() {
     const rows = [
-      [SHORTCUTS.renfo, 'Renforcement musculaire traditionnel'], [SHORTCUTS.elliptique, 'Elliptique'], [SHORTCUTS.marche, 'Marche en salle'],
-      [SHORTCUTS.velo, 'Vélo en salle'], [SHORTCUTS.rameur, 'Rameur'], [SHORTCUTS.course, 'Course en salle'],
+      [SHORTCUTS.renfo, 'Musculation traditionnelle (Traditional Strength Training)'], [SHORTCUTS.elliptique, 'Vélo elliptique (Elliptical)'], [SHORTCUTS.marche, 'Marche en intérieur (Indoor Walk)'],
+      [SHORTCUTS.velo, 'Vélo en intérieur (Indoor Cycle)'], [SHORTCUTS.rameur, 'Rameur (Rower)'], [SHORTCUTS.course, 'Course en intérieur (Indoor Run)'],
     ];
     const list = el('ul', { class: 'list' });
-    for (const [name, type] of rows) list.append(el('li', { html: `<b>${name}</b><small>Démarrer l’exercice : ${type} → Ouvrir l’app : Muscu</small>` }));
-    list.append(el('li', { html: `<b>${SHORTCUTS.fin}</b><small>Terminer l’exercice (si l’action existe chez toi) → Ouvrir l’app : Muscu. Sinon, termine sur la montre.</small>` }));
+    for (const [name, type] of rows) list.append(el('li', { html: `<b>${name}</b><small>Une seule action — Démarrer l’exercice : ${type}, objectif libre</small>` }));
+    list.append(el('li', { html: `<b>${SHORTCUTS.fin}</b><small>Une seule action — Terminer l’exercice (si elle existe chez toi). Sinon, ne crée pas ce raccourci et termine sur la montre.</small>` }));
     openSheet(
       el('h3', { text: '⌚ Raccourcis à créer (une seule fois)' }),
-      el('div', { class: 'sub', text: 'App Raccourcis → + → nomme le raccourci EXACTEMENT comme ci-dessous → ajoute les 2 actions. Crée seulement ceux dont tu te sers.' }),
+      el('div', { class: 'sub', text: 'App Raccourcis → + → nomme le raccourci EXACTEMENT comme ci-dessous → une seule action. Crée seulement ceux dont tu te sers.' }),
       list,
-      el('p', { class: 'hint', style: 'margin-top:8px', text: 'Une app web n’a pas le droit de piloter la montre directement : elle passe la main à Raccourcis, qui lance l’exercice puis rouvre Muscu. Tu verras donc un aller-retour d’une seconde.' }),
+      el('p', { class: 'hint', style: 'margin-top:8px', text: 'Une app web n’a pas le droit de piloter la montre : elle passe la main à Raccourcis, qui lance l’exercice. Pour revenir ici, touche « ◀ Muscu » en haut à gauche de l’écran (Raccourcis ne sait pas rouvrir une app web tout seul).' }),
       el('div', { class: 'actions', style: 'margin-top:12px' },
         el('button', { class: 'btn', type: 'button', text: `Tester « ${SHORTCUTS.renfo} »`, onclick: () => { window.location.href = `shortcuts://run-shortcut?name=${encodeURIComponent(SHORTCUTS.renfo)}`; } }),
         el('button', { class: 'btn primary', type: 'button', text: 'Retour', onclick: openSettings })));
