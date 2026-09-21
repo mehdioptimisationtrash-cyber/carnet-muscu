@@ -80,7 +80,7 @@ Déploiement : `git push` (Pages sur `main`, racine). Penser à `CACHE_VERSION` 
 - 2026-09-19 : 3 autres bugs corrigés (édition de cible hors séance) : (1) une série dont la cible montait n'était jamais mise en doré — `.chal` n'avait qu'un liseré, maintenant fond `--gold-soft` plein ; (2) bouton « Appliquer à toutes les séries » supprimé — l'édition d'une cible est désormais **toujours** liée à une seule série (`Enregistrer la cible de la série N`) ; (3) relever la charge d'une série (dropdown `#fC`) fait maintenant repartir les reps à `e.repMin` automatiquement (ajustable ensuite), avec un indice affiché. `repMin` par défaut passé de 10 à 8 dans `mkExo`, et mis à jour à 8 pour tous les exos déjà en base (feuille + `data/seed`). SW v6.
 
 ## TODO
-- [ ] Mehdi : recoller `apps-script/Code.gs` (v2) dans Apps Script + Déployer → Gérer les déploiements → ✏️ → Nouvelle version (sinon la nutrition reste sur le téléphone).
+- [x] 2026-09-21 : `Code.gs` **v3** déployé par Mehdi et vérifié sur la vraie feuille (onglet `nutrition` créé, clé de date `AAAA-MM-JJ` correcte, ré-écriture sans doublon). Piège rencontré en v2 : Sheets convertit la date en `Date` et `instanceof Date` est faux dans Apps Script → tester `typeof v.getTime === 'function'` et prendre la clé dans le JSON du jour.
 - [ ] Mehdi : créer les raccourcis iOS `Muscu Renfo/Elliptique/Marche/Fin` et activer ⚙︎ → Apple Watch.
 - [ ] `app.js` fait ~830 lignes (limite 800) : extraire les stats dans `stats.js` à la prochaine évolution.
 - [ ] Mehdi : installer sur l'iPhone (Safari → Partager → Sur l'écran d'accueil) et tester une séance réelle.
