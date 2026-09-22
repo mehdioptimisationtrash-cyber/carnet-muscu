@@ -101,6 +101,8 @@ Le raccourci « Muscu Pas », 5 actions :
 
 L'app copie l'URL et le jeton pour toi : Journal → jauge 🚶 → « Remplissage automatique : comment ça marche ? ».
 
+**À la demande** : dans la jauge 🚶, « 📲 Actualiser depuis Santé » lance le raccourci (`shortcuts://run-shortcut?name=Muscu%20Pas`, le nom doit être exact). Raccourcis s'ouvre, exécute, et tu reviens dans le carnet via « ◀ Muscu » en haut à gauche : l'app relit alors la feuille (3 essais sur 10 s, le temps que l'envoi arrive) et affiche le total.
+
 Automatisation : Raccourcis → *Automatisation* → + → *Heure de la journée* → 12:00, 18:00 et 23:50 → *Exécuter immédiatement* → « Muscu Pas ». Chaque envoi **remplace** le total du jour (dernier envoi gagne, y compris sur une saisie manuelle déjà synchronisée).
 
 Contrat du script (`doPost`) : `{ token, iphone: 961, montre: 1520 }` (ou `{ token, steps: 8432 }`), `date` facultative → réponse `{ ok: true, v: 5, steps: { '2026-09-22': { n: 1520, src: 'sante', detail: 'montre (montre 1520 · iphone 961)' } } }`. Un appel sans `state` est accepté (il n'écrit que les pas). Test unitaire : `node tools/test_codegs.js apps-script/Code.gs`.

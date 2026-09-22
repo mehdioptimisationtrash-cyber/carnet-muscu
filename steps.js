@@ -13,6 +13,10 @@ window.Steps = (() => {
   const REFRESH_MIN_MS = 60000;       // au retour au premier plan, on relit la feuille au plus une fois par minute
   const CHART_DAYS = 14;
   const SHORTCUT_NAME = 'Muscu Pas';
+  const AWAIT_KEY = 'carnet-muscu-steps-await';   // posé avant de lancer le raccourci : au retour, on relit la feuille sans attendre
+  const AWAIT_MAX_MS = 10 * 60000;
+  const AWAIT_RETRY_MS = [0, 4000, 10000];        // le POST du raccourci peut arriver quelques secondes après le retour
+  const isIOS = () => /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
   let lastRefresh = 0;
   const st = () => A().state;
@@ -50,7 +54,27 @@ window.Steps = (() => {
       return false;
     }
   }
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+  /* ---------- lancement du raccourci depuis l'app (iOS) ---------- */
+  const awaiting = () => { try { const t = Number(sessionStorage.getItem(AWAIT_KEY)); return t && Date.now() - t < AWAIT_MAX_MS; } catch { return false; } };
+  const setAwaiting = (on) => { try { on ? sessionStorage.setItem(AWAIT_KEY, String(Date.now())) : sessionStorage.removeItem(AWAIT_KEY); } catch {} };
+  function runShortcut() {
+    const name = st().settings.stepsShortcut || SHORTCUT_NAME;
+    setAwaiting(true);
+    A().toast('📲 Raccourci lancé', 'Reviens ici avec « ◀ Muscu » en haut à gauche : les pas s’afficheront.');
+    if (Array.isArray(window.__shortcutLog)) { window.__shortcutLog.push(name); return; }   // couture de test
+    window.location.href = `shortcuts://run-shortcut?name=${encodeURIComponent(name)}`;
+  }
+  async function refreshAfterShortcut() {
+    setAwaiting(false);
+    const before = JSON.stringify(st().steps || {});
+    for (const ms of AWAIT_RETRY_MS) {
+      if (ms) await new Promise((r) => setTimeout(r, ms));
+      if (document.hidden) return;
+      if (await refresh(true)) { const n = count(A().today()); A().toast(`🚶 ${n === null ? 'Pas mis à jour' : fmt(n) + ' pas aujourd’hui'}`, 'depuis Santé, via le raccourci'); return; }
+    }
+    if (JSON.stringify(st().steps || {}) === before) A().toast('Rien de nouveau dans la feuille', 'Le raccourci n’a peut-être pas fini : réessaie « ↻ Relire la feuille » dans un instant.');
+  }
+  document.addEventListener('visibilitychange', () => { if (document.hidden) return; if (awaiting()) refreshAfterShortcut(); else refresh(); });
 
   /* ---------- journal ---------- */
   function gauge(date) {
@@ -75,6 +99,8 @@ window.Steps = (() => {
       el('h3', { text: `🚶 Pas · ${date === today() ? 'aujourd’hui' : fmtDate(date)}` }),
       el('div', { class: 'sub', text: e ? `${fmt(e.n)} pas enregistrés ${e.src === 'sante' ? 'automatiquement depuis Santé' : 'à la main'}. Corrige si besoin.` : 'Le total du jour, tel que l’app Santé ou Pedometer++ l’affiche.' }),
       ...(old ? [el('div', { class: 'ax warn' }, el('b', { text: 'Script Google à mettre à jour (v4)' }), el('small', { text: 'Les pas sont gardés sur ce téléphone, mais pas encore dans la feuille. Recolle apps-script/Code.gs puis Déployer → Gérer les déploiements → ✏️ → Nouvelle version.' }))] : []),
+      ...(isIOS() || Array.isArray(window.__shortcutLog) ? [el('button', { class: 'btn primary big', type: 'button', id: 'stepsRun', text: '📲 Actualiser depuis Santé', onclick: () => { closeSheet(); runShortcut(); } }),
+        el('p', { class: 'hint', style: 'margin:4px 0 10px', text: `Lance le raccourci « ${st().settings.stepsShortcut || SHORTCUT_NAME} » (lecture Santé → feuille), puis reviens ici avec « ◀ Muscu ».` })] : []),
       el('div', { class: 'wrow' }, input, el('button', { class: 'btn primary', type: 'button', text: 'Enregistrer', onclick: doSave })),
       el('div', { class: 'menu' },
         el('button', { class: 'btn', type: 'button', text: '↻ Relire la feuille (pas envoyés par le raccourci)', onclick: async () => { const ok = await refresh(true); closeSheet(); A().toast(ok ? '🚶 Pas mis à jour depuis la feuille' : 'Rien de nouveau dans la feuille', ok ? '' : 'Le raccourci n’a pas encore envoyé ce jour, ou la lecture a échoué.'); } }),
@@ -92,7 +118,7 @@ window.Steps = (() => {
       ['« Rechercher des échantillons de santé » ×2 : iPhone, puis montre', 'Type : Pas · Date de début : est aujourd’hui · Grouper par : Jour · filtre Source = « iPhone de … » pour la première, Source = « Apple Watch de … » pour la seconde. Sans filtre, iPhone + montre s’additionnent.'],
       ['« Calculer des statistiques » ×2 : Somme', 'Une après chaque recherche. Deux totaux : iPhone et montre.'],
       ['Action « Obtenir le contenu de l’URL »', 'URL : celle du script (bouton ci-dessous) · Méthode : POST · Corps : JSON · trois champs : token (texte, bouton ci-dessous), iphone (nombre = 1re Somme), montre (nombre = 2e Somme). Le script garde le plus grand : montre portée → montre, sinon iPhone. Facultatif : date (texte AAAA-MM-JJ).'],
-      ['Automatisation', 'Raccourcis → Automatisation → + → Heure de la journée → 12:00, 18:00 et 23:50 → « Exécuter immédiatement » → ce raccourci. Chaque envoi remplace le total du jour ; le carnet le relit quand tu l’ouvres.'],
+      ['Automatisation', 'Raccourcis → Automatisation → + → Heure de la journée → 23:50 → « Exécuter immédiatement » → ce raccourci. Chaque envoi remplace le total du jour ; le carnet le relit quand tu l’ouvres. À tout moment : « 📲 Actualiser depuis Santé » dans la jauge lance le raccourci à la demande (nom exact requis : « ' + SHORTCUT_NAME + ' »).'],
     ];
     const list = el('ol', { class: 'list steps-help' });
     for (const [t, sub] of steps) list.append(el('li', {}, el('b', { text: t }), ...(sub ? [el('small', { text: sub })] : [])));
@@ -139,5 +165,5 @@ window.Steps = (() => {
     else out.append(ax('good', `Marche : ${fmt(w.avg)} pas/jour — objectif atteint`, `${w.ok}/${w.n} jours à l’objectif. C’est la dépense « gratuite » qui fait la différence sur la semaine. Inutile d’aller bien au-delà de 10–12 000.`));
   }
 
-  return { gauge, openEntry, openHelp, refresh, tile, statsBlock, axes, weekAvg, reached, count, goal, GOALS, DEFAULT_GOAL };
+  return { gauge, openEntry, openHelp, refresh, runShortcut, tile, statsBlock, axes, weekAvg, reached, count, goal, GOALS, DEFAULT_GOAL };
 })();

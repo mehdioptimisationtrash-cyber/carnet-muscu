@@ -82,12 +82,17 @@ with sync_playwright() as p:
     manual_post = [x for x in store["posts"] if x["steps"]][-1]
     recap = pg.text_content(".recap").replace("\u202f", " ")
 
-    # 2. le raccourci envoie le total du jour (sans date → aujourd'hui) et celui d'hier ; l'app le relit au retour au premier plan
+    # 2. l'app lance le raccourci (couture __shortcutLog : pas de navigation shortcuts://), qui envoie le total du jour
+    #    (sans date → aujourd'hui) et celui d'hier ; au retour au premier plan, l'app relit la feuille sans attendre
+    pg.evaluate("window.__shortcutLog = []")
+    pg.click("#stepsGauge"); pg.click("#stepsRun")
+    launched = pg.evaluate("window.__shortcutLog"), pg.evaluate("!!sessionStorage.getItem('carnet-muscu-steps-await')")
     shortcut_today = shortcut_post(pg, 9120)
     shortcut_post(pg, 12000, YESTERDAY)
-    pg.evaluate("window.App.absorb({})")   # rien : juste pour s'assurer que la passerelle existe
-    refreshed = pg.evaluate("window.Steps.refresh(true)")
+    pg.evaluate("document.dispatchEvent(new Event('visibilitychange'))")
     pg.wait_for_function("document.querySelector('#stepsGauge .gauge-top span').textContent.includes('9')")
+    refreshed = pg.evaluate("!sessionStorage.getItem('carnet-muscu-steps-await')")
+    toast = pg.text_content(".toast b").replace("\u202f", " ")
     auto = gauge_text(pg)
     marks = pg.locator(".wk-day .m").all_text_contents()
     posts_before = len(store["posts"])
@@ -123,7 +128,7 @@ with sync_playwright() as p:
 
 print("jauge vide :", empty)
 print("saisie manuelle :", manual, "| POST :", manual_post, "| recap :", recap)
-print("raccourci → réponse :", shortcut_today, "| relu ? ", refreshed, "| jauge :", auto, "| marques :", marks)
+print("lancement du raccourci :", launched, "| réponse :", shortcut_today, "| drapeau effacé ? ", refreshed, "| toast :", toast, "| jauge :", auto, "| marques :", marks)
 print("saisie locale non envoyée gagne au démarrage :", local_wins, "| feuille ensuite :", sheet_after)
 print("objectif 10 000 :", goal_txt)
 print("stats : tuile =", [t for t in tiles if "Pas" in t], "| axes =", axes, "| sections =", [s for s in secs if "Pas" in s], "| barres =", chart_bars)
@@ -135,7 +140,7 @@ print("erreurs JS :", errors or "aucune")
 ok = (
     "0 / 8 000" in empty[0] and "6 500" in manual[0] and "main" in manual[1]
     and manual_post["steps"] == {TODAY: {"n": 6500, "src": "manuel"}} and "6 500 pas" in recap
-    and refreshed and "9 120" in auto[0] and "Santé" in auto[1] and any("🚶" in m for m in marks)
+    and launched == (["Muscu Pas"], True) and refreshed and "9 120" in toast and "9 120" in auto[0] and "Santé" in auto[1] and any("🚶" in m for m in marks)
     and "7 777" in local_wins[0] and sheet_after == {"n": 7777, "src": "manuel"}
     and "10 000" in goal_txt[0] and axes and chart_bars >= 2 and "7 777" in back[0]
     and len(help_items) == 5 and not any(x["steps_in_state"] for x in store["posts"]) and not errors
