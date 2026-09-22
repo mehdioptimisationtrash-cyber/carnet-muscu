@@ -91,7 +91,7 @@ Une app web n'a pas accès à Santé ni à Pedometer++. Le contournement : un **
 Prérequis : `Code.gs` **v4** collé et redéployé (voir « Si tu modifies Code.gs »).
 
 Le raccourci « Muscu Pas », 3 actions :
-1. **Rechercher des échantillons de santé** — Type : *Pas* · Date de début : *est aujourd'hui* · *Grouper par : Jour*. Avec une Apple Watch, ajoute le filtre *Source = ta montre* : sans ça, les pas de l'iPhone et de la montre s'additionnent (le total serait le double de celui de Santé).
+1. **Rechercher des échantillons de santé** — Type : *Pas* · Date de début : *est aujourd'hui* · *Grouper par : Jour* · filtre **Source = ta montre** (« Apple Watch de Mehdi »). Sans filtre, iPhone + montre s'additionnent (2 383 au lieu de 1 590 dans Santé) ; Raccourcis ne sait pas refaire la fusion de Santé, et la montre est la source la plus proche du total (1 520). Un jour sans montre : saisir à la main dans l'app.
 2. **Calculer des statistiques** — *Somme* des échantillons trouvés.
 3. **Obtenir le contenu de l'URL** — URL = `SHEETS_URL` de `config.js` · Méthode *POST* · Corps *JSON* avec deux champs : `token` (texte, le `TOKEN` de `config.js`) et `steps` (nombre = la Somme). Champ facultatif `date` (texte `AAAA-MM-JJ`), sinon le script prend la date du jour (fuseau de la feuille).
 
