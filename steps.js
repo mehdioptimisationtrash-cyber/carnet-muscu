@@ -7,7 +7,7 @@
 window.Steps = (() => {
   'use strict';
   const A = () => window.App;
-  const DEFAULT_GOAL = 8000;           // repère perte de poids : 8 000–10 000 pas/jour
+  const DEFAULT_GOAL = 10000;          // choix de Mehdi (2026-09-22) ; repère perte de poids : 8 000–10 000 pas/jour
   const GOALS = [5000, 6000, 7000, 8000, 10000, 12000];
   const SCRIPT_VERSION_MIN = 4;   // v5 ajoute iphone/montre côté raccourci, sans changement pour l'app
   const REFRESH_MIN_MS = 60000;       // au retour au premier plan, on relit la feuille au plus une fois par minute

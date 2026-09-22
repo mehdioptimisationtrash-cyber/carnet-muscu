@@ -104,8 +104,8 @@ with sync_playwright() as p:
     local_wins = gauge_text(pg)
     sheet_after = store["steps"][TODAY]
 
-    # 4. réglages : objectif 10 000
-    pg.click("#btnSettings"); pg.select_option("#gSteps", "10000"); pg.click(".sheet >> text=Enregistrer"); synced(pg)
+    # 4. réglages : objectif 12 000 (défaut 10 000)
+    pg.click("#btnSettings"); pg.select_option("#gSteps", "12000"); pg.click(".sheet >> text=Enregistrer"); synced(pg)
     goal_txt = gauge_text(pg)
 
     # 5. stats : tuile, axe, graphique
@@ -130,7 +130,7 @@ print("jauge vide :", empty)
 print("saisie manuelle :", manual, "| POST :", manual_post, "| recap :", recap)
 print("lancement du raccourci :", launched, "| réponse :", shortcut_today, "| drapeau effacé ? ", refreshed, "| toast :", toast, "| jauge :", auto, "| marques :", marks)
 print("saisie locale non envoyée gagne au démarrage :", local_wins, "| feuille ensuite :", sheet_after)
-print("objectif 10 000 :", goal_txt)
+print("objectif 12 000 :", goal_txt)
 print("stats : tuile =", [t for t in tiles if "Pas" in t], "| axes =", axes, "| sections =", [s for s in secs if "Pas" in s], "| barres =", chart_bars)
 print("après vidage du cache :", back)
 print("aide :", len(help_items), "étapes")
@@ -138,11 +138,11 @@ print("steps jamais dans state ? ", not any(x["steps_in_state"] for x in store["
 print("erreurs JS :", errors or "aucune")
 
 ok = (
-    "0 / 8 000" in empty[0] and "6 500" in manual[0] and "main" in manual[1]
+    "0 / 10 000" in empty[0] and "6 500" in manual[0] and "main" in manual[1]
     and manual_post["steps"] == {TODAY: {"n": 6500, "src": "manuel"}} and "6 500 pas" in recap
     and launched == (["Muscu Pas"], True) and refreshed and "9 120" in toast and "9 120" in auto[0] and "Santé" in auto[1] and any("🚶" in m for m in marks)
     and "7 777" in local_wins[0] and sheet_after == {"n": 7777, "src": "manuel"}
-    and "10 000" in goal_txt[0] and axes and chart_bars >= 2 and "7 777" in back[0]
+    and "12 000" in goal_txt[0] and axes and chart_bars >= 2 and "7 777" in back[0]
     and len(help_items) == 5 and not any(x["steps_in_state"] for x in store["posts"]) and not errors
 )
 print("RÉSULTAT :", "OK" if ok else "ÉCHEC")

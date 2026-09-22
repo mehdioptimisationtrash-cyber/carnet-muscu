@@ -23,7 +23,7 @@
     { id: 'full', e: '✅', n: 'Séance 100 % réussie', t: (s) => s.history.some(h => h.setsDone > 0 && h.setsDone === h.setsTotal && h.fails === 0 && !h.light) },
     { id: 'ton10', e: '🚚', n: '10 tonnes en une séance', t: (s) => s.history.some(h => h.volume >= 10000) },
     { id: 'weight', e: '⚖️', n: '14 jours de pesée', t: (s) => (s.weights || []).length >= 14 },
-    { id: 'steps7', e: '🚶', n: '7 jours de marche à l’objectif', t: (s) => Object.values(s.steps || {}).filter(x => x.n >= (Number(s.settings.stepsGoal) || 8000)).length >= 7 },
+    { id: 'steps7', e: '🚶', n: '7 jours de marche à l’objectif', t: (s) => Object.values(s.steps || {}).filter(x => x.n >= (Number(s.settings.stepsGoal) || 10000)).length >= 7 },
   ];
 
   /* ---------- utilitaires ---------- */
@@ -59,7 +59,7 @@
   let tab = 'seance';
   let restTimer = null, restEnd = 0, clockTimer = null;
 
-  const defaultSettings = () => ({ rest: 90, weeklyGoal: 3, autoDeload: true, apple: false, cardio: { avant: 'none', apres: 'none' }, stepsGoal: 8000 });
+  const defaultSettings = () => ({ rest: 90, weeklyGoal: 3, autoDeload: true, apple: false, cardio: { avant: 'none', apres: 'none' }, stepsGoal: 10000 });
   const mkExo = (name, sets, opts = {}) => ({ id: uid(), name, mode: 'reps', step: 2, repMin: 8, repMax: 15, sets, last: null, best: null, stalled: 0, ...opts });
   const seed = () => ({ v: 2, rev: 0, xp: 0, settings: defaultSettings(), exos: [], session: null, history: [], weights: [], nutrition: {}, steps: {} });
   const isObj = (x) => x && typeof x === 'object' && !Array.isArray(x);
@@ -446,8 +446,8 @@
     const selGoal = selectEl('gGoal', [1, 2, 3, 4, 5, 6], st.weeklyGoal, (o) => plural(o, 'séance'));
     const selAuto = selectEl('gAuto', ['oui', 'non'], st.autoDeload ? 'oui' : 'non', (o) => o === 'oui' ? 'Oui — après 2 échecs, −1 cran' : 'Non — je décide moi-même');
     const selApple = selectEl('gApple', ['non', 'oui'], st.apple ? 'oui' : 'non', (o) => o === 'oui' ? 'Oui — me rappeler quoi lancer sur la montre' : 'Non');
-    const stepGoals = window.Steps ? window.Steps.GOALS : [8000];
-    const selSteps = selectEl('gSteps', stepGoals.includes(st.stepsGoal) ? stepGoals : [...stepGoals, st.stepsGoal].sort((a, b) => a - b), st.stepsGoal || 8000, (o) => `${Number(o).toLocaleString('fr-FR')} pas`);
+    const stepGoals = window.Steps ? window.Steps.GOALS : [10000];
+    const selSteps = selectEl('gSteps', stepGoals.includes(st.stepsGoal) ? stepGoals : [...stepGoals, st.stepsGoal].sort((a, b) => a - b), st.stepsGoal || 10000, (o) => `${Number(o).toLocaleString('fr-FR')} pas`);
     openSheet(
       el('h3', { text: 'Réglages' }),
       el('div', { class: 'sub', text: 'Repos, objectif hebdo, recalibrage, pas, Apple Watch' }),
@@ -459,7 +459,7 @@
           el('button', { class: 'btn ghost', type: 'button', style: 'margin-top:6px', text: 'Remplissage automatique depuis Santé', onclick: () => window.Steps?.openHelp() })),
         el('div', { class: 'field wide' }, el('label', { for: 'gApple', text: '⌚ Rappels Apple Watch' }), selApple,
           el('button', { class: 'btn ghost', type: 'button', style: 'margin-top:6px', text: 'Comment ça marche ?', onclick: openAppleHelp }))),
-      el('div', { class: 'actions' }, el('button', { class: 'btn primary big', type: 'button', text: 'Enregistrer', onclick: () => { commit({ ...state, settings: { ...st, rest: Number(selRest.value), weeklyGoal: Number(selGoal.value), autoDeload: selAuto.value === 'oui', apple: selApple.value === 'oui', stepsGoal: Number(selSteps.value) || 8000 } }); closeSheet(); } })));
+      el('div', { class: 'actions' }, el('button', { class: 'btn primary big', type: 'button', text: 'Enregistrer', onclick: () => { commit({ ...state, settings: { ...st, rest: Number(selRest.value), weeklyGoal: Number(selGoal.value), autoDeload: selAuto.value === 'oui', apple: selApple.value === 'oui', stepsGoal: Number(selSteps.value) || 10000 } }); closeSheet(); } })));
   }
   function openAppleHelp() {
     const rows = [
