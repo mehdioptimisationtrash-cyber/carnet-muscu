@@ -169,6 +169,12 @@ h4.sec { font-size: 13px; margin: 14px 0 6px; text-transform: uppercase; letter-
 .gauge { margin-bottom: 8px; }
 .gauge-top { display: flex; justify-content: space-between; font-size: 13.5px; margin-bottom: 3px; }
 .gauge small { font-size: 12px; color: var(--muted); }
+.gauge-btn { display: block; text-align: left; border: 0; background: none; padding: 6px 8px; margin: 0 -8px 8px; width: calc(100% + 16px); border-radius: 8px; font: inherit; color: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.gauge-btn:hover { background: var(--bg-hover); }
+.gauge-btn .gauge-top { margin-bottom: 3px; }
+.gauge-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.steps-help { padding-left: 20px; }
+.steps-help li { list-style: decimal; }
 .gbar { height: 9px; border-radius: 999px; background: rgba(127,127,127,.18); overflow: hidden; }
 .gbar > i { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width .4s ease; }
 .gbar.ok > i { background: var(--good); }

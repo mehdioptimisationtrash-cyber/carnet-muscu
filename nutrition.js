@@ -86,7 +86,7 @@ window.Nutrition = (() => {
     strip.append(el('button', { class: 'wk-nav', type: 'button', 'aria-label': 'Semaine précédente', text: '‹', onclick: () => { sel = addDays(sel, -7); A().render(); } }));
     ['L', 'M', 'M', 'J', 'V', 'S', 'D'].forEach((letter, i) => {
       const date = addDays(monday, i), future = date > t, day = dayOf(date);
-      const marks = `${hist.has(date) ? '🏋️' : ''}${totals(day).alc > 0 ? '🍺' : ''}`;
+      const marks = `${hist.has(date) ? '🏋️' : ''}${window.Steps?.reached(date) ? '🚶' : ''}${totals(day).alc > 0 ? '🍺' : ''}`;
       const b = el('button', { class: `wk-day st-${dayStatus(day)}${date === sel ? ' sel' : ''}${date === t ? ' today' : ''}`, type: 'button', 'aria-label': date, onclick: () => { sel = date; A().render(); } },
         el('span', { class: 'l', text: letter }), el('span', { class: 'n', text: String(Number(date.slice(8))) }), el('span', { class: 'm', text: marks || '·' }));
       if (future) b.disabled = true;
@@ -114,6 +114,7 @@ window.Nutrition = (() => {
     return el('div', { class: 'daycard' },
       el('div', { class: 'daycard-title', text: sel === today() ? 'Aujourd’hui' : new Date(sel + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }) }),
       bar('Calories', t.kcal, c.kcal, 'kcal', true), bar('Protéines', t.p, c.prot, 'g', false),
+      ...(window.Steps ? [window.Steps.gauge(sel)] : []),
       el('div', { class: 'chips-top', style: 'margin:8px 0 0' },
         el('span', { class: `chip${copieux ? ' fire' : ''}`, html: `🍽️ <b>${copieux}</b> copieux` }),
         el('span', { class: 'chip', html: `🍪 <b>${snacks}</b> collation${snacks > 1 ? 's' : ''}` }),
@@ -137,6 +138,7 @@ window.Nutrition = (() => {
     const items = [];
     if (h) items.push(`🏋️ Séance : ${h.setsDone}/${h.setsTotal} séries · ${h.min} min · ${(h.volume / 1000).toFixed(1)} t${cardioMinutes(h) ? ` · cardio ${cardioMinutes(h)} min` : ''}`);
     if (w) items.push(`⚖️ ${w.kg} kg`);
+    const steps = window.Steps?.count(sel); if (steps) items.push(`🚶 ${steps.toLocaleString('fr-FR')} pas`);
     return el('div', { class: 'recap', text: items.length ? items.join('   ') : 'Pas de séance ni de pesée ce jour-là.' });
   }
 

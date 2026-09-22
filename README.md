@@ -84,8 +84,25 @@ git add -A && git commit -m "feat: …" && git push
 Safari → ouvre l'URL du site → bouton **Partager** → **Sur l'écran d'accueil** → Ajouter.
 L'app s'ouvre en plein écran, fonctionne hors-ligne, et envoie les séances à Google Sheets dès que le réseau revient.
 
+## 6. Pas quotidiens automatiques (Santé → Raccourcis → feuille)
+
+Une app web n'a pas accès à Santé ni à Pedometer++. Le contournement : un **raccourci iOS** lit tes pas dans Santé (où Pedometer++ et l'Apple Watch les déposent) et les envoie directement dans l'onglet `pas` de la feuille. Le carnet les relit à chaque retour au premier plan (ou via « ↻ Relire la feuille » dans la jauge 🚶 du Journal). La saisie manuelle reste possible (touche la jauge).
+
+Prérequis : `Code.gs` **v4** collé et redéployé (voir « Si tu modifies Code.gs »).
+
+Le raccourci « Muscu Pas », 3 actions :
+1. **Rechercher des échantillons de santé** — Type : *Pas* · Date de début : *est aujourd'hui* · *Grouper par : Jour*. Avec une Apple Watch, ajoute le filtre *Source = ta montre* : sans ça, les pas de l'iPhone et de la montre s'additionnent (le total serait le double de celui de Santé).
+2. **Calculer des statistiques** — *Somme* des échantillons trouvés.
+3. **Obtenir le contenu de l'URL** — URL = `SHEETS_URL` de `config.js` · Méthode *POST* · Corps *JSON* avec deux champs : `token` (texte, le `TOKEN` de `config.js`) et `steps` (nombre = la Somme). Champ facultatif `date` (texte `AAAA-MM-JJ`), sinon le script prend la date du jour (fuseau de la feuille).
+
+L'app copie l'URL et le jeton pour toi : Journal → jauge 🚶 → « Remplissage automatique : comment ça marche ? ».
+
+Automatisation : Raccourcis → *Automatisation* → + → *Heure de la journée* → 12:00, 18:00 et 23:50 → *Exécuter immédiatement* → « Muscu Pas ». Chaque envoi **remplace** le total du jour (dernier envoi gagne, y compris sur une saisie manuelle déjà synchronisée).
+
+Contrat du script (`doPost`) : `{ token, steps: 8432 }` ou `{ token, steps: 8432, date: '2026-09-22' }` → réponse `{ ok: true, v: 4, steps: { '2026-09-22': { n: 8432, src: 'sante' } } }`. Un appel sans `state` est accepté (il n'écrit que les pas).
+
 ## Données
 
-- Source de vérité : la feuille Google (`state` = cibles/XP/réglages, `historique` = une ligne par séance).
+- Source de vérité : la feuille Google (`state` = cibles/XP/réglages, `historique` = une ligne par séance, `nutrition` = une ligne par jour, `pas` = une ligne par jour).
 - `localStorage` = cache d'affichage et tampon hors-ligne ; s'il est vidé, tout revient depuis la feuille au prochain lancement.
 - Boutons **Exporter / Importer** : sauvegarde JSON manuelle (filet de sécurité).

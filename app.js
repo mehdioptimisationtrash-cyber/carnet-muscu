@@ -23,6 +23,7 @@
     { id: 'full', e: '✅', n: 'Séance 100 % réussie', t: (s) => s.history.some(h => h.setsDone > 0 && h.setsDone === h.setsTotal && h.fails === 0 && !h.light) },
     { id: 'ton10', e: '🚚', n: '10 tonnes en une séance', t: (s) => s.history.some(h => h.volume >= 10000) },
     { id: 'weight', e: '⚖️', n: '14 jours de pesée', t: (s) => (s.weights || []).length >= 14 },
+    { id: 'steps7', e: '🚶', n: '7 jours de marche à l’objectif', t: (s) => Object.values(s.steps || {}).filter(x => x.n >= (Number(s.settings.stepsGoal) || 8000)).length >= 7 },
   ];
 
   /* ---------- utilitaires ---------- */
@@ -58,13 +59,13 @@
   let tab = 'seance';
   let restTimer = null, restEnd = 0, clockTimer = null;
 
-  const defaultSettings = () => ({ rest: 90, weeklyGoal: 3, autoDeload: true, apple: false, cardio: { avant: 'none', apres: 'none' } });
+  const defaultSettings = () => ({ rest: 90, weeklyGoal: 3, autoDeload: true, apple: false, cardio: { avant: 'none', apres: 'none' }, stepsGoal: 8000 });
   const mkExo = (name, sets, opts = {}) => ({ id: uid(), name, mode: 'reps', step: 2, repMin: 8, repMax: 15, sets, last: null, best: null, stalled: 0, ...opts });
-  const seed = () => ({ v: 2, rev: 0, xp: 0, settings: defaultSettings(), exos: [], session: null, history: [], weights: [], nutrition: {} });
+  const seed = () => ({ v: 2, rev: 0, xp: 0, settings: defaultSettings(), exos: [], session: null, history: [], weights: [], nutrition: {}, steps: {} });
   const isObj = (x) => x && typeof x === 'object' && !Array.isArray(x);
   const migrate = (d) => {
     if (!d || typeof d !== 'object') return null;
-    if (d.v === 2) return { ...seed(), ...d, settings: { ...defaultSettings(), ...(d.settings || {}) }, history: Array.isArray(d.history) ? d.history : [], weights: Array.isArray(d.weights) ? d.weights : [], nutrition: isObj(d.nutrition) ? d.nutrition : {} };
+    if (d.v === 2) return { ...seed(), ...d, settings: { ...defaultSettings(), ...(d.settings || {}) }, history: Array.isArray(d.history) ? d.history : [], weights: Array.isArray(d.weights) ? d.weights : [], nutrition: isObj(d.nutrition) ? d.nutrition : {}, steps: isObj(d.steps) ? d.steps : {} };
     const exos = (d.seances || []).flatMap(s => s.exos.map(e => mkExo(e.name, Array.from({ length: e.series || 3 }, () => ({ charge: e.charge, reps: typeof e.reps === 'number' ? e.reps : parseInt(e.reps) || 30 })), typeof e.reps === 'string' ? { mode: 'temps', repMin: 20, repMax: 120 } : {})));
     return { ...seed(), rev: d.rev || 0, exos };
   };
@@ -77,6 +78,8 @@
     render();
     if (Sync.enabled()) Sync.scheduleSave(state);
   }
+  // mise à jour venue de la feuille (ex. pas envoyés par le raccourci) : ni nouvelle révision, ni sauvegarde
+  function absorb(patch) { state = { ...state, ...patch }; writeCache(state); render(); }
   const updExo = (id, fn) => ({ ...state, exos: state.exos.map(e => e.id === id ? fn(e) : e) });
   const targetsOf = (e) => (state.session?.targets?.[e.id]) || e.sets;
 
@@ -443,16 +446,20 @@
     const selGoal = selectEl('gGoal', [1, 2, 3, 4, 5, 6], st.weeklyGoal, (o) => plural(o, 'séance'));
     const selAuto = selectEl('gAuto', ['oui', 'non'], st.autoDeload ? 'oui' : 'non', (o) => o === 'oui' ? 'Oui — après 2 échecs, −1 cran' : 'Non — je décide moi-même');
     const selApple = selectEl('gApple', ['non', 'oui'], st.apple ? 'oui' : 'non', (o) => o === 'oui' ? 'Oui — me rappeler quoi lancer sur la montre' : 'Non');
+    const stepGoals = window.Steps ? window.Steps.GOALS : [8000];
+    const selSteps = selectEl('gSteps', stepGoals.includes(st.stepsGoal) ? stepGoals : [...stepGoals, st.stepsGoal].sort((a, b) => a - b), st.stepsGoal || 8000, (o) => `${Number(o).toLocaleString('fr-FR')} pas`);
     openSheet(
       el('h3', { text: 'Réglages' }),
-      el('div', { class: 'sub', text: 'Repos, objectif hebdo, recalibrage, Apple Watch' }),
+      el('div', { class: 'sub', text: 'Repos, objectif hebdo, recalibrage, pas, Apple Watch' }),
       el('div', { class: 'fields' },
         el('div', { class: 'field' }, el('label', { for: 'gRest', text: 'Repos entre séries' }), selRest),
         el('div', { class: 'field' }, el('label', { for: 'gGoal', text: 'Objectif par semaine' }), selGoal),
         el('div', { class: 'field wide' }, el('label', { for: 'gAuto', text: 'Recalibrage auto d’un défi raté 2 fois' }), selAuto),
+        el('div', { class: 'field wide' }, el('label', { for: 'gSteps', text: '🚶 Objectif de pas par jour' }), selSteps,
+          el('button', { class: 'btn ghost', type: 'button', style: 'margin-top:6px', text: 'Remplissage automatique depuis Santé', onclick: () => window.Steps?.openHelp() })),
         el('div', { class: 'field wide' }, el('label', { for: 'gApple', text: '⌚ Rappels Apple Watch' }), selApple,
           el('button', { class: 'btn ghost', type: 'button', style: 'margin-top:6px', text: 'Comment ça marche ?', onclick: openAppleHelp }))),
-      el('div', { class: 'actions' }, el('button', { class: 'btn primary big', type: 'button', text: 'Enregistrer', onclick: () => { commit({ ...state, settings: { ...st, rest: Number(selRest.value), weeklyGoal: Number(selGoal.value), autoDeload: selAuto.value === 'oui', apple: selApple.value === 'oui' } }); closeSheet(); } })));
+      el('div', { class: 'actions' }, el('button', { class: 'btn primary big', type: 'button', text: 'Enregistrer', onclick: () => { commit({ ...state, settings: { ...st, rest: Number(selRest.value), weeklyGoal: Number(selGoal.value), autoDeload: selAuto.value === 'oui', apple: selApple.value === 'oui', stepsGoal: Number(selSteps.value) || 8000 } }); closeSheet(); } })));
   }
   function openAppleHelp() {
     const rows = [
@@ -702,9 +709,11 @@
       tile('Semaines d’affilée', streakWeeks(state), '🔥'),
       tile('Dernier volume', last ? (last.volume / 1000).toFixed(1) : '—', last ? `t${prev ? (last.volume >= prev.volume ? ' ▲' : ' ▼') : ''}` : ''),
       tile('Cardio cette semaine', weekCardioMin(), ` / ${CARDIO_WEEK_TARGET_MIN} min`),
+      ...(window.Steps ? [window.Steps.tile()] : []),
     ));
     v.append(el('h2', { class: 'sec', text: 'Axes d’amélioration' }), axesBlock());
     if (window.Nutrition) v.append(window.Nutrition.statsBlock());
+    if (window.Steps) v.append(window.Steps.statsBlock());
     if (!H.length) { v.append(el('div', { class: 'empty', style: 'margin-top:14px', text: 'Termine ta première séance pour débloquer les tendances.' })); v.append(badgesBlock()); return; }
     v.append(el('h2', { class: 'sec', text: 'Défis réussis par séance' }), challengeChart(H.slice(-12)));
     v.append(el('h2', { class: 'sec', text: 'Volume par séance (kg soulevés)' }), volumeChart(H.slice(-12)));
@@ -756,7 +765,7 @@
   function axesBlock() {
     const out = el('div', { class: 'axes' });
     const H = state.history, last = H.at(-1);
-    if (!last) { if (window.Nutrition) window.Nutrition.axes(out); out.append(ax('good', 'Commence par une séance', 'Elle fixe ta base. Dès la suivante, chaque série réussie devient un défi : +1 rep, puis +1 cran de charge à 15 reps.')); return out; }
+    if (!last) { if (window.Steps) window.Steps.axes(out); if (window.Nutrition) window.Nutrition.axes(out); out.append(ax('good', 'Commence par une séance', 'Elle fixe ta base. Dès la suivante, chaque série réussie devient un défi : +1 rep, puis +1 cran de charge à 15 reps.')); return out; }
     const gap = daysBetween(last.date, today());
     if (gap >= 7) out.append(ax('warn', `Dernière séance il y a ${gap} jours`, 'La régularité pèse plus que l’intensité : cale une séance cette semaine pour garder la série.'));
     const wk = weekCount(), goal = state.settings.weeklyGoal;
@@ -764,6 +773,7 @@
     const cardioWk = weekCardioMin();
     if (cardioWk < CARDIO_WEEK_TARGET_MIN) out.append(ax('', `Cardio : ${cardioWk}/${CARDIO_WEEK_TARGET_MIN} min cette semaine`, 'En perte de poids, vise 150 min/semaine d’intensité modérée (elliptique, marche inclinée : tu peux parler mais pas chanter). Place-le APRÈS la muscu pour garder ta force sur les défis ; 5–10 min avant suffisent comme échauffement. La marche du quotidien compte aussi.'));
     else out.append(ax('good', `Cardio : ${cardioWk} min cette semaine — objectif atteint`, 'Inutile d’en faire beaucoup plus : au-delà, c’est la récupération (et donc tes charges) qui trinque.'));
+    if (window.Steps) window.Steps.axes(out);
     if (window.Nutrition) window.Nutrition.axes(out);
     const chal = allChallenges(), n = chal.reduce((a, x) => a + x.cs.length, 0);
     if (n) out.append(ax('good', `⚡ ${plural(n, 'défi')} t’attendent à la prochaine séance`, chal.map(x => `${x.e.name} : ${challengeText(x.e, x.cs)}`).join(' · ')));
@@ -803,7 +813,7 @@
   window.App = {
     get state() { return state; },
     scriptVersion: 0,
-    commit, render, el, svgEl, $, openSheet, closeSheet, selectEl, tile, ax, today, fmtDate, plural, weekKey, daysBetween, cardioMinutes,
+    commit, absorb, render, el, svgEl, $, openSheet, closeSheet, selectEl, tile, ax, toast, today, fmtDate, plural, weekKey, daysBetween, cardioMinutes,
   };
 
   /* ---------- export / import (filet de sécurité) ---------- */
@@ -838,10 +848,13 @@
     catch (err) { setStatus('err', navigator.onLine ? 'Impossible de lire Google Sheets — données locales affichées' : 'Hors-ligne — données locales affichées', navigator.onLine ? String(err.message || err) : ''); if (Sync.hasOutbox()) Sync.scheduleSave(state, 5000); return; }
     // journal nutrition : les jours modifiés ici et pas encore envoyés gagnent toujours sur la feuille
     const dirty = Object.fromEntries(Sync.dirtyDays().filter(d => state.nutrition?.[d]).map(d => [d, state.nutrition[d]]));
-    if (remote && remote.rev > state.rev) { state = { ...remote, nutrition: { ...remote.nutrition, ...dirty } }; writeCache(state); render(); setStatus('ok', 'Synchronisé avec Google Sheets'); }
+    // pas quotidiens : la feuille gagne (le raccourci Santé y écrit), sauf les jours saisis ici et pas encore envoyés
+    const dirtySteps = Object.fromEntries(Sync.dirtySteps().filter(d => state.steps?.[d]).map(d => [d, state.steps[d]]));
+    const steps = { ...(state.steps || {}), ...(remote?.steps || {}), ...dirtySteps };
+    if (remote && remote.rev > state.rev) { state = { ...remote, nutrition: { ...remote.nutrition, ...dirty }, steps }; writeCache(state); render(); setStatus('ok', 'Synchronisé avec Google Sheets'); }
     else {
-      if (remote) { state = { ...state, nutrition: { ...remote.nutrition, ...state.nutrition } }; writeCache(state); }
-      if (state.rev > (remote?.rev ?? 0) || (Sync.hasOutbox() && state.rev)) Sync.scheduleSave(state, 0);
+      if (remote) { state = { ...state, nutrition: { ...remote.nutrition, ...state.nutrition }, steps }; writeCache(state); }
+      if (state.rev > (remote?.rev ?? 0) || (Sync.hasOutbox() && state.rev) || Sync.dirtyDays().length || Sync.dirtySteps().length) Sync.scheduleSave(state, 0);
       else setStatus('ok', remote ? 'Synchronisé avec Google Sheets' : 'Google Sheets prêt — ajoute un exercice');
     }
     if (tab === 'journal') render();

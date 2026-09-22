@@ -1,6 +1,6 @@
 # carnet-muscu — INDEX
 
-> Dernière analyse : 2026-09-17
+> Dernière analyse : 2026-09-22
 
 Carnet de musculation personnel de Mehdi, en PWA installable sur iPhone, sauvegardé dans une feuille Google Sheets via un script Apps Script. HTML/CSS/JS vanilla, sans framework, hébergé sur GitHub Pages (gratuit).
 
@@ -14,13 +14,14 @@ Carnet de musculation personnel de Mehdi, en PWA installable sur iPhone, sauvega
 | `index.html` | page unique (en-tête niveau/XP, état de sauvegarde, onglets Séance / Stats, barre de séance, overlay) |
 | `styles.css` | look façon Notion + pastilles de séries, thème clair/sombre |
 | `app.js` | logique : modèle `state` (v2), progression par série (double progression 10→15 reps puis +cran de charge), séance (démarrer / valider série / repos / terminer), XP-niveaux-badges, stats & axes d'amélioration, export/import JSON, démarrage avec fusion cache ↔ feuille |
-| `sync.js` | couche Google Sheets : `load()` (GET), `scheduleSave()` (POST regroupé 1 s), file d'attente hors-ligne (`localStorage` drapeau `carnet-muscu-outbox`), reprise sur `online` / `visibilitychange` |
+| `sync.js` | couche Google Sheets : `load(quiet)` (GET), `scheduleSave()` (POST regroupé 1 s), file d'attente hors-ligne (`localStorage` drapeau `carnet-muscu-outbox`), jours nutrition / pas modifiés (`markDay`, `markSteps`), reprise sur `online` / `visibilitychange` |
+| `steps.js` | pas quotidiens : jauge 🚶 du Journal (saisie manuelle), relecture de la feuille au retour au premier plan (`refresh`), aide au raccourci iOS, tuile/axe/graphique 14 j dans Stats |
 | `config.js` | `SHEETS_URL` (URL Apps Script `/exec`) + `TOKEN` — **visibles publiquement**, seule protection = le script ne touche que cette feuille |
 | `sw.js` | service worker : cache des fichiers statiques (réseau d'abord pour les pages), jamais les appels Google ; bump `CACHE_VERSION` à chaque déploiement |
 | `manifest.webmanifest`, `icons/` | PWA (`standalone`, icônes 192/512/apple-touch 180 générées depuis 🏋️) |
-| `apps-script/Code.gs` | script Google à coller dans la feuille : `doGet` renvoie l'état, `doPost` l'écrit (onglets `state`, `historique`, `exercices`) |
+| `apps-script/Code.gs` | script Google (v4) à coller dans la feuille : `doGet` renvoie l'état, `doPost` l'écrit (onglets `state`, `historique`, `exercices`, `nutrition`, `pas`) ; accepte aussi un POST « raccourci » `{token, steps, date?}` sans `state` |
 | `tools/make-icons.py` | régénère les icônes (Playwright) |
-| `tools/e2e_local.py` | test de bout en bout local (feuille Google simulée par interception) |
+| `tools/e2e_local.py` | test de bout en bout local (feuille Google simulée par interception) ; `e2e_nutrition.py`, `e2e_cardio.py`, `e2e_steps.py` idem par fonctionnalité |
 | `exports/` (gitignoré) | `migration.json` = données issues de l'ancien fichier iCloud (12 exos, séance du 15/09) |
 
 ## Modèle de données (`state` v2)
@@ -79,6 +80,12 @@ Déploiement : `git push` (Pages sur `main`, racine). Penser à `CACHE_VERSION` 
 - `app.js` expose `window.App` (passerelle : state, commit, el, openSheet, tile, ax…) ; `today()` est maintenant en date **locale**.
 - Attention CSS : ne pas nommer un état `empty` (collision avec `.empty`) → états du calendrier préfixés `st-`.
 
+## Pas quotidiens (2026-09-22) — `steps.js`, `Code.gs` v4
+- **Données** : `state.steps = { 'AAAA-MM-JJ': { n, src: 'sante'|'manuel' } }`, hors de la cellule `state` (comme la nutrition) : onglet `pas` (date | pas | source | mis à jour), 120 derniers jours au GET. `Sync.markSteps(date)` → le POST ajoute `steps:{date:{n,src}}` pour les jours modifiés ici ; nettoyé si script ≥ v4. Au démarrage, la feuille gagne sauf les jours « dirty » locaux (et les jours dirty sont renvoyés même sans outbox).
+- **Automatique** : une PWA n'a pas HealthKit → raccourci iOS « Muscu Pas » (Rechercher des échantillons de santé : Pas, aujourd'hui, grouper par jour, filtre Source = montre si Apple Watch → Calculer des statistiques : Somme → Obtenir le contenu de l'URL : POST JSON `{token, steps}` vers `SHEETS_URL`), automatisé à heures fixes. `Code.gs` `normalizeSteps` accepte la forme plate (date facultative = aujourd'hui dans le fuseau de la feuille, `src:'sante'`) et la forme app. Pedometer++ n'a pas d'action Raccourcis documentée : on passe par Santé, où il dépose ses pas.
+- **Relecture** : `Steps.refresh()` sur `visibilitychange` (≤ 1×/min, GET silencieux `Sync.load(true)`) fusionne les pas de la feuille via `App.absorb(patch)` (nouvelle passerelle : met à jour l'état + cache + rendu **sans** nouvelle `rev` ni sauvegarde). Bouton « ↻ Relire la feuille » dans la feuille de saisie.
+- **UI** : jauge 🚶 cliquable dans la carte du jour (`#stepsGauge`, classe `.gauge-btn`), marque 🚶 dans le calendrier si objectif atteint, recap « 🚶 N pas », objectif dans ⚙︎ Réglages (`settings.stepsGoal`, défaut 8 000), tuile « Pas / jour (7 j) », axe Marche (3 niveaux), graphique 14 jours, badge « 7 jours de marche à l'objectif ». « Remettre à zéro » écrit 0 (pas de suppression de ligne côté feuille). SW v12.
+
 ## Logique anti-doublon (2026-09-18)
 - `finishSession()` : si `state.history.at(-1).date === today()`, la nouvelle séance **fusionne** avec la précédente (`mergeEntries`) au lieu de créer une 2e entrée — additionne sets/volume/xp/défis, union prs/paliers, `exos` = dernière valeur par id, `light` = ET des deux. Pas de bonus `XP.session` ni de bonus de série sur une reprise (`continuation`).
 - `weekCount()`/les chips comptent des **entrées d'historique**, donc dépendent de cette dédup par date — ne pas la retirer sans revoir ces compteurs.
@@ -87,8 +94,9 @@ Déploiement : `git push` (Pages sur `main`, racine). Penser à `CACHE_VERSION` 
 
 ## TODO
 - [x] 2026-09-21 : `Code.gs` **v3** déployé par Mehdi et vérifié sur la vraie feuille (onglet `nutrition` créé, clé de date `AAAA-MM-JJ` correcte, ré-écriture sans doublon). Piège rencontré en v2 : Sheets convertit la date en `Date` et `instanceof Date` est faux dans Apps Script → tester `typeof v.getTime === 'function'` et prendre la clé dans le JSON du jour.
+- [ ] Mehdi : coller `Code.gs` **v4** et redéployer (Nouvelle version), puis créer le raccourci « Muscu Pas » + automatisation (README §6) et vérifier que le total n'est pas doublé (filtre Source).
 - [ ] Mehdi : créer les raccourcis iOS `Muscu Renfo/Elliptique/Marche/Fin` et activer ⚙︎ → Apple Watch.
-- [ ] `app.js` fait ~830 lignes (limite 800) : extraire les stats dans `stats.js` à la prochaine évolution.
+- [ ] `app.js` fait ~865 lignes (limite 800) : extraire les stats dans `stats.js` à la prochaine évolution.
 - [ ] Mehdi : installer sur l'iPhone (Safari → Partager → Sur l'écran d'accueil) et tester une séance réelle.
 - [ ] Saisir les piles de plaques des machines de la salle (⋯ → « Plaques de la machine » sur chaque exo, ou me les dicter).
 - [ ] Éventuel : réglage du temps de repos dans l'interface (aujourd'hui 90 s fixe dans `settings.rest`).

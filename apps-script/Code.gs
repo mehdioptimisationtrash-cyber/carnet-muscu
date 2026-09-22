@@ -1,5 +1,5 @@
 /**
- * Carnet Muscu — script Google Apps Script (VERSION 2 : ajoute le journal nutrition).
+ * Carnet Muscu — script Google Apps Script (VERSION 4 : nutrition + pas quotidiens).
  * À coller dans la feuille (Extensions → Apps Script), puis :
  *   Déployer → Gérer les déploiements → ✏️ → Version : Nouvelle version → Déployer  (l'URL ne change pas).
  *
@@ -8,12 +8,16 @@
  *  - historique  : une ligne par séance, lisible + colonne « données brutes »
  *  - exercices   : cibles actuelles, lisibles
  *  - nutrition   : une ligne par jour (kcal, protéines, alcool, collations, repas copieux, note) + données brutes
+ *  - pas         : une ligne par jour (nombre de pas, source, dernière mise à jour). Rempli par l'app (saisie manuelle)
+ *                  OU par un raccourci iOS qui lit Santé et envoie { token, steps: 8432 } (date facultative, cf. README §6).
  *
  * TOKEN doit être identique à celui de config.js sur le site.
  */
 const TOKEN = 'c34f34c52f50ef6db3b1a960e44f8f66';
-const VERSION = 3;
+const VERSION = 4;
 const NUTRITION_DAYS_SENT = 120;   // l'app reçoit les 120 derniers jours ; tout reste dans la feuille
+const STEPS_DAYS_SENT = 120;
+const STEPS_MAX = 200000;
 
 function doGet(e) {
   const token = e && e.parameter ? e.parameter.token : '';
@@ -29,19 +33,22 @@ function doPost(e) {
   let body;
   try { body = JSON.parse(e.postData.contents); } catch (err) { return out({ ok: false, error: 'bad json' }); }
   if (!body || body.token !== TOKEN) return out({ ok: false, error: 'unauthorized' });
-  if (!body.state || typeof body.state !== 'object') return out({ ok: false, error: 'missing state' });
+  const hasState = body.state && typeof body.state === 'object';
+  const steps = normalizeSteps(body);
+  if (!hasState && !steps) return out({ ok: false, error: 'missing state or steps' });
   const lock = LockService.getScriptLock();
   lock.waitLock(15000);
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    writeState(ss, body.state);
-    if (body.days && typeof body.days === 'object') upsertDays(ss, body.days);
+    if (hasState) writeState(ss, body.state);
+    if (hasState && body.days && typeof body.days === 'object') upsertDays(ss, body.days);
+    if (steps) upsertSteps(ss, steps);
   } catch (err) {
     return out({ ok: false, error: String(err) });
   } finally {
     lock.releaseLock();
   }
-  return out({ ok: true, v: VERSION, rev: body.state.rev || 0 });
+  return out({ ok: true, v: VERSION, rev: hasState ? (body.state.rev || 0) : 0, steps: steps || undefined });
 }
 
 function readState(ss) {
@@ -55,6 +62,7 @@ function readState(ss) {
   const rows = n > 0 ? hs.getRange(2, 1, n, 10).getValues() : [];
   state.history = rows.filter((r) => r[9]).map((r) => JSON.parse(r[9]));
   state.nutrition = readDays(ss);
+  state.steps = readSteps(ss);
   return state;
 }
 
@@ -63,6 +71,7 @@ function writeState(ss, state) {
   const rest = Object.assign({}, state);
   delete rest.history;
   delete rest.nutrition;
+  delete rest.steps;
 
   const sh = sheet(ss, 'state', ['sauvegarde — ne pas modifier']);
   sh.getRange('A2').setValue(JSON.stringify(rest));
@@ -145,6 +154,69 @@ function readDays(ss) {
   // la clé vient des données du jour elles-mêmes (fiable), la colonne A ne sert que de secours
   rows.forEach((r) => { if (r[7]) { try { const d = JSON.parse(r[7]); outDays[d.date || dateKey(r[0])] = d; } catch (err) { /* ligne abîmée : ignorée */ } } });
   return outDays;
+}
+
+/* ---------- pas quotidiens : une ligne par jour ---------- */
+const STEPS_HEADER = ['date', 'pas', 'source', 'mis à jour'];
+
+function stepsSheet(ss) {
+  const sh = sheet(ss, 'pas', STEPS_HEADER);
+  sh.getRange('A:A').setNumberFormat('@');
+  return sh;
+}
+
+function todayKey() {
+  return Utilities.formatDate(new Date(), SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone(), 'yyyy-MM-dd');
+}
+
+// Accepte les deux formes :
+//  - app      : { steps: { '2026-09-22': { n: 8432, src: 'manuel' }, ... } }
+//  - raccourci: { steps: 8432, date: '2026-09-22' }   (date facultative = aujourd'hui ; source = 'sante')
+// Renvoie { date: { n, src } } ou null s'il n'y a rien d'exploitable.
+function normalizeSteps(body) {
+  const outSteps = {};
+  const put = (date, n, src) => {
+    const key = String(date || '').trim();
+    const val = Math.round(Number(String(n).replace(/[^0-9.]/g, '')));
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || !(val >= 0) || val > STEPS_MAX) return;
+    outSteps[key] = { n: val, src: src === 'manuel' ? 'manuel' : 'sante' };
+  };
+  if (body.steps && typeof body.steps === 'object') {
+    Object.keys(body.steps).forEach((date) => {
+      const v = body.steps[date];
+      if (v && typeof v === 'object') put(date, v.n, v.src);
+      else put(date, v, body.source);
+    });
+  } else if (body.steps !== undefined && body.steps !== null && body.steps !== '') {
+    put(body.date || todayKey(), body.steps, body.source);
+  }
+  return Object.keys(outSteps).length ? outSteps : null;
+}
+
+function upsertSteps(ss, steps) {
+  const sh = stepsSheet(ss);
+  const n = sh.getLastRow() - 1;
+  const existing = n > 0 ? sh.getRange(2, 1, n, 1).getValues().map((r) => dateKey(r[0])) : [];
+  const now = new Date();
+  Object.keys(steps).forEach((date) => {
+    const row = [date, steps[date].n, steps[date].src, now];
+    const i = existing.indexOf(date);
+    if (i >= 0) sh.getRange(i + 2, 1, 1, 4).setValues([row]);
+    else { sh.appendRow(row); existing.push(date); }
+  });
+  const total = sh.getLastRow() - 1;
+  if (total > 1) sh.getRange(2, 1, total, 4).sort(1);
+}
+
+function readSteps(ss) {
+  const sh = ss.getSheetByName('pas');
+  const n = sh ? sh.getLastRow() - 1 : 0;
+  if (n <= 0) return {};
+  const start = Math.max(2, n + 2 - STEPS_DAYS_SENT);
+  const rows = sh.getRange(start, 1, n + 2 - start, 3).getValues();
+  const outSteps = {};
+  rows.forEach((r) => { const v = Math.round(Number(r[1])); if (r[0] && v >= 0) outSteps[dateKey(r[0])] = { n: v, src: r[2] === 'manuel' ? 'manuel' : 'sante' }; });
+  return outSteps;
 }
 
 function sheet(ss, name, header) {

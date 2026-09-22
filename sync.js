@@ -3,6 +3,7 @@
  * - scheduleSave(s) : regroupe les modifications et les envoie 1 s après la dernière.
  * - markDay(date)   : journal nutrition — seuls les jours modifiés sont envoyés (une ligne par jour dans la feuille),
  *                     jamais tout l'historique des repas à chaque sauvegarde.
+ * - markSteps(date) : pas quotidiens — même principe (onglet « pas »), les jours modifiés ici gagnent sur la feuille.
  * - Hors-ligne ou échec : l'envoi est mis en attente (drapeaux dans localStorage) et retenté au retour du réseau,
  *   en arrière-plan, ou au prochain lancement.
  */
@@ -11,6 +12,7 @@ window.Sync = (() => {
   const cfg = window.CARNET_CONFIG || {};
   const OUTBOX_KEY = 'carnet-muscu-outbox';
   const DAYS_KEY = 'carnet-muscu-dirty-days';
+  const STEPS_KEY = 'carnet-muscu-dirty-steps';
   const TIMEOUT_MS = 20000;
   const RETRY_MS = 30000;
   const KEEPALIVE_MAX_BYTES = 60000;
@@ -29,6 +31,9 @@ window.Sync = (() => {
   const dirtyDays = () => { try { return JSON.parse(localStorage.getItem(DAYS_KEY) || '[]'); } catch { return []; } };
   const setDirtyDays = (days) => { try { days.length ? localStorage.setItem(DAYS_KEY, JSON.stringify(days)) : localStorage.removeItem(DAYS_KEY); } catch {} };
   const markDay = (date) => { const d = dirtyDays(); if (!d.includes(date)) setDirtyDays([...d, date]); };
+  const dirtySteps = () => { try { return JSON.parse(localStorage.getItem(STEPS_KEY) || '[]'); } catch { return []; } };
+  const setDirtySteps = (days) => { try { days.length ? localStorage.setItem(STEPS_KEY, JSON.stringify(days)) : localStorage.removeItem(STEPS_KEY); } catch {} };
+  const markSteps = (date) => { const d = dirtySteps(); if (!d.includes(date)) setDirtySteps([...d, date]); };
 
   async function request(method, payload) {
     const ctrl = new AbortController();
@@ -53,8 +58,8 @@ window.Sync = (() => {
     }
   }
 
-  async function load() {
-    status('saving', 'Lecture de Google Sheets…');
+  async function load(quiet = false) {
+    if (!quiet) status('saving', 'Lecture de Google Sheets…');
     const data = await request('GET');
     return { state: data.state ?? null, v: data.v || 1 };
   }
@@ -74,13 +79,17 @@ window.Sync = (() => {
     const snapshot = pendingState;
     pendingState = null;
     // le journal nutrition voyage à part : uniquement les jours modifiés
-    const { nutrition = {}, ...rest } = snapshot;
+    const { nutrition = {}, steps = {}, ...rest } = snapshot;
     const sentDays = dirtyDays();
     const days = Object.fromEntries(sentDays.map((d) => [d, nutrition[d] || { date: d, meals: [], note: '' }]));
-    inflight = request('POST', { state: rest, days })
+    const sentSteps = dirtySteps().filter((d) => steps[d]);
+    const stepsOut = Object.fromEntries(sentSteps.map((d) => [d, steps[d]]));
+    inflight = request('POST', { state: rest, days, ...(sentSteps.length ? { steps: stepsOut } : {}) })
       .then((data) => {
         // un ancien script Google (v1) ignore les jours : on les garde « à envoyer » jusqu'à sa mise à jour
         if ((data.v || 1) >= 2) setDirtyDays(dirtyDays().filter((d) => !sentDays.includes(d) || (pendingState && pendingState.nutrition?.[d] !== nutrition[d])));
+        // idem pour les pas (script v4)
+        if ((data.v || 1) >= 4) setDirtySteps(dirtySteps().filter((d) => !sentSteps.includes(d) || (pendingState && pendingState.steps?.[d] !== steps[d])));
         if (!pendingState) { setOutbox(false); status('ok', `Enregistré sur Google Sheets · ${hhmm()}`); }
       })
       .catch((err) => {
@@ -99,5 +108,5 @@ window.Sync = (() => {
   window.addEventListener('online', () => { if (pendingState) flush(); });
   document.addEventListener('visibilitychange', () => { if (document.hidden && pendingState) flush(); });
 
-  return { enabled, load, scheduleSave, flush, hasOutbox, markDay, dirtyDays, onStatus: (cb) => { statusCb = cb; } };
+  return { enabled, load, scheduleSave, flush, hasOutbox, markDay, dirtyDays, markSteps, dirtySteps, onStatus: (cb) => { statusCb = cb; } };
 })();
