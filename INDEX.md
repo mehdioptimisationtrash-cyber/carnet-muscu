@@ -94,7 +94,8 @@ Déploiement : `git push` (Pages sur `main`, racine). Penser à `CACHE_VERSION` 
 
 ## TODO
 - [x] 2026-09-21 : `Code.gs` **v3** déployé par Mehdi et vérifié sur la vraie feuille (onglet `nutrition` créé, clé de date `AAAA-MM-JJ` correcte, ré-écriture sans doublon). Piège rencontré en v2 : Sheets convertit la date en `Date` et `instanceof Date` est faux dans Apps Script → tester `typeof v.getTime === 'function'` et prendre la clé dans le JSON du jour.
-- [ ] Mehdi : coller `Code.gs` **v4** et redéployer (Nouvelle version), puis créer le raccourci « Muscu Pas » + automatisation (README §6) et vérifier que le total n'est pas doublé (filtre Source).
+- [x] 2026-09-22 : `Code.gs` v4 déployé et vérifié (GET → `v:4`). Raccourci « Muscu Pas » créé par Mehdi et testé : réponse `{ok, v:4, steps:{'2026-09-22':{n:2383,src:'sante'}}}`. Piège rencontré : le champ `steps` de « Obtenir le contenu de l'URL » pointait sur les *Échantillons de Santé* (le raccourci demandait « envoyer 2 échantillons ») au lieu de la variable *Statistiques* (Somme). Pas de filtre Source pour l'instant ; Mehdi ne veut que la source iPhone (à ajouter si le total ressort doublé).
+- [ ] Mehdi : automatisation Heure de la journée (23:50, « Exécuter immédiatement ») + « Toujours autoriser » au dialogue d'envoi.
 - [ ] Mehdi : créer les raccourcis iOS `Muscu Renfo/Elliptique/Marche/Fin` et activer ⚙︎ → Apple Watch.
 - [ ] `app.js` fait ~865 lignes (limite 800) : extraire les stats dans `stats.js` à la prochaine évolution.
 - [ ] Mehdi : installer sur l'iPhone (Safari → Partager → Sur l'écran d'accueil) et tester une séance réelle.
