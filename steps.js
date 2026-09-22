@@ -9,7 +9,7 @@ window.Steps = (() => {
   const A = () => window.App;
   const DEFAULT_GOAL = 8000;           // repère perte de poids : 8 000–10 000 pas/jour
   const GOALS = [5000, 6000, 7000, 8000, 10000, 12000];
-  const SCRIPT_VERSION_MIN = 4;
+  const SCRIPT_VERSION_MIN = 4;   // v5 ajoute iphone/montre côté raccourci, sans changement pour l'app
   const REFRESH_MIN_MS = 60000;       // au retour au premier plan, on relit la feuille au plus une fois par minute
   const CHART_DAYS = 14;
   const SHORTCUT_NAME = 'Muscu Pas';
@@ -89,9 +89,9 @@ window.Steps = (() => {
     const copy = (label, value) => el('button', { class: 'btn', type: 'button', text: label, onclick: async () => { try { await navigator.clipboard.writeText(value); A().toast('Copié ✓', value.length > 60 ? value.slice(0, 57) + '…' : value); } catch { prompt('Copie cette valeur :', value); } } });
     const steps = [
       ['Ouvre l’app Raccourcis → + → nomme-le « ' + SHORTCUT_NAME + ' »', ''],
-      ['Action « Rechercher des échantillons de santé »', 'Type : Pas · Date de début : est aujourd’hui · coche « Grouper par : Jour ». Si tu portes une Apple Watch, ajoute le filtre Source = ta montre (sinon iPhone + montre s’additionnent).'],
-      ['Action « Calculer des statistiques »', 'Opération : Somme · sur les échantillons de santé trouvés. C’est ton total du jour.'],
-      ['Action « Obtenir le contenu de l’URL »', 'URL : celle du script (bouton ci-dessous) · Méthode : POST · Corps : JSON · deux champs : token (texte, bouton ci-dessous) et steps (nombre = la Somme de l’étape 3). Facultatif : date (texte AAAA-MM-JJ), sinon = aujourd’hui.'],
+      ['« Rechercher des échantillons de santé » ×2 : iPhone, puis montre', 'Type : Pas · Date de début : est aujourd’hui · Grouper par : Jour · filtre Source = « iPhone de … » pour la première, Source = « Apple Watch de … » pour la seconde. Sans filtre, iPhone + montre s’additionnent.'],
+      ['« Calculer des statistiques » ×2 : Somme', 'Une après chaque recherche. Deux totaux : iPhone et montre.'],
+      ['Action « Obtenir le contenu de l’URL »', 'URL : celle du script (bouton ci-dessous) · Méthode : POST · Corps : JSON · trois champs : token (texte, bouton ci-dessous), iphone (nombre = 1re Somme), montre (nombre = 2e Somme). Le script garde le plus grand : montre portée → montre, sinon iPhone. Facultatif : date (texte AAAA-MM-JJ).'],
       ['Automatisation', 'Raccourcis → Automatisation → + → Heure de la journée → 12:00, 18:00 et 23:50 → « Exécuter immédiatement » → ce raccourci. Chaque envoi remplace le total du jour ; le carnet le relit quand tu l’ouvres.'],
     ];
     const list = el('ol', { class: 'list steps-help' });

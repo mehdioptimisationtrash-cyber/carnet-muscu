@@ -1,5 +1,5 @@
 /**
- * Carnet Muscu — script Google Apps Script (VERSION 4 : nutrition + pas quotidiens).
+ * Carnet Muscu — script Google Apps Script (VERSION 5 : nutrition + pas quotidiens iPhone/montre).
  * À coller dans la feuille (Extensions → Apps Script), puis :
  *   Déployer → Gérer les déploiements → ✏️ → Version : Nouvelle version → Déployer  (l'URL ne change pas).
  *
@@ -9,12 +9,14 @@
  *  - exercices   : cibles actuelles, lisibles
  *  - nutrition   : une ligne par jour (kcal, protéines, alcool, collations, repas copieux, note) + données brutes
  *  - pas         : une ligne par jour (nombre de pas, source, dernière mise à jour). Rempli par l'app (saisie manuelle)
- *                  OU par un raccourci iOS qui lit Santé et envoie { token, steps: 8432 } (date facultative, cf. README §6).
+ *                  OU par un raccourci iOS qui lit Santé et envoie { token, iphone: 961, montre: 1520 } — le script garde
+ *                  le plus grand des deux (montre portée → montre ; sinon iPhone). { token, steps: 8432 } reste accepté.
+ *                  Date facultative (= aujourd'hui dans le fuseau de la feuille), cf. README §6.
  *
  * TOKEN doit être identique à celui de config.js sur le site.
  */
 const TOKEN = 'c34f34c52f50ef6db3b1a960e44f8f66';
-const VERSION = 4;
+const VERSION = 5;
 const NUTRITION_DAYS_SENT = 120;   // l'app reçoit les 120 derniers jours ; tout reste dans la feuille
 const STEPS_DAYS_SENT = 120;
 const STEPS_MAX = 200000;
@@ -169,26 +171,33 @@ function todayKey() {
   return Utilities.formatDate(new Date(), SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone(), 'yyyy-MM-dd');
 }
 
-// Accepte les deux formes :
-//  - app      : { steps: { '2026-09-22': { n: 8432, src: 'manuel' }, ... } }
-//  - raccourci: { steps: 8432, date: '2026-09-22' }   (date facultative = aujourd'hui ; source = 'sante')
-// Renvoie { date: { n, src } } ou null s'il n'y a rien d'exploitable.
+// Accepte trois formes :
+//  - app                : { steps: { '2026-09-22': { n: 8432, src: 'manuel' }, ... } }
+//  - raccourci (2 src.) : { iphone: 961, montre: 1520, date? }  → n = le plus grand (Santé privilégie la montre quand
+//                         elle est portée ; sans montre, elle est à 0 et l'iPhone gagne). Raccourcis ne sait pas refaire
+//                         la fusion de Santé : ce maximum en est l'approximation la plus proche jour après jour.
+//  - raccourci (1 src.) : { steps: 8432, date? }
+// Date facultative = aujourd'hui dans le fuseau de la feuille. Renvoie { date: { n, src, detail? } } ou null.
 function normalizeSteps(body) {
   const outSteps = {};
-  const put = (date, n, src) => {
+  const num = (v) => { const t = String(v === undefined || v === null ? '' : v).replace(/[^0-9.]/g, ''); if (!t) return NaN; const x = Math.round(Number(t)); return x >= 0 ? x : NaN; };
+  const put = (date, n, src, detail) => {
     const key = String(date || '').trim();
-    const val = Math.round(Number(String(n).replace(/[^0-9.]/g, '')));
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || !(val >= 0) || val > STEPS_MAX) return;
-    outSteps[key] = { n: val, src: src === 'manuel' ? 'manuel' : 'sante' };
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(key) || !(n >= 0) || n > STEPS_MAX) return;
+    outSteps[key] = { n, src: src === 'manuel' ? 'manuel' : 'sante', detail: detail || '' };
   };
   if (body.steps && typeof body.steps === 'object') {
     Object.keys(body.steps).forEach((date) => {
       const v = body.steps[date];
-      if (v && typeof v === 'object') put(date, v.n, v.src);
-      else put(date, v, body.source);
+      if (v && typeof v === 'object') put(date, num(v.n), v.src);
+      else put(date, num(v), body.source);
     });
+  } else if (body.iphone !== undefined || body.montre !== undefined) {
+    const ip = num(body.iphone), mo = num(body.montre);
+    const both = [ip, mo].filter((x) => x >= 0);
+    if (both.length) put(body.date || todayKey(), Math.max.apply(null, both), 'sante', (mo >= ip ? 'montre' : 'iphone') + ' (montre ' + (mo >= 0 ? mo : '–') + ' · iphone ' + (ip >= 0 ? ip : '–') + ')');
   } else if (body.steps !== undefined && body.steps !== null && body.steps !== '') {
-    put(body.date || todayKey(), body.steps, body.source);
+    put(body.date || todayKey(), num(body.steps), body.source);
   }
   return Object.keys(outSteps).length ? outSteps : null;
 }
@@ -199,7 +208,7 @@ function upsertSteps(ss, steps) {
   const existing = n > 0 ? sh.getRange(2, 1, n, 1).getValues().map((r) => dateKey(r[0])) : [];
   const now = new Date();
   Object.keys(steps).forEach((date) => {
-    const row = [date, steps[date].n, steps[date].src, now];
+    const row = [date, steps[date].n, steps[date].src + (steps[date].detail ? ' · ' + steps[date].detail : ''), now];
     const i = existing.indexOf(date);
     if (i >= 0) sh.getRange(i + 2, 1, 1, 4).setValues([row]);
     else { sh.appendRow(row); existing.push(date); }
@@ -215,7 +224,7 @@ function readSteps(ss) {
   const start = Math.max(2, n + 2 - STEPS_DAYS_SENT);
   const rows = sh.getRange(start, 1, n + 2 - start, 3).getValues();
   const outSteps = {};
-  rows.forEach((r) => { const v = Math.round(Number(r[1])); if (r[0] && v >= 0) outSteps[dateKey(r[0])] = { n: v, src: r[2] === 'manuel' ? 'manuel' : 'sante' }; });
+  rows.forEach((r) => { const v = Math.round(Number(r[1])); if (r[0] && v >= 0) outSteps[dateKey(r[0])] = { n: v, src: String(r[2]).indexOf('manuel') === 0 ? 'manuel' : 'sante' }; });
   return outSteps;
 }
 

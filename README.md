@@ -88,18 +88,22 @@ L'app s'ouvre en plein écran, fonctionne hors-ligne, et envoie les séances à 
 
 Une app web n'a pas accès à Santé ni à Pedometer++. Le contournement : un **raccourci iOS** lit tes pas dans Santé (où Pedometer++ et l'Apple Watch les déposent) et les envoie directement dans l'onglet `pas` de la feuille. Le carnet les relit à chaque retour au premier plan (ou via « ↻ Relire la feuille » dans la jauge 🚶 du Journal). La saisie manuelle reste possible (touche la jauge).
 
-Prérequis : `Code.gs` **v4** collé et redéployé (voir « Si tu modifies Code.gs »).
+Prérequis : `Code.gs` **v5** collé et redéployé (voir « Si tu modifies Code.gs »).
 
-Le raccourci « Muscu Pas », 3 actions :
-1. **Rechercher des échantillons de santé** — Type : *Pas* · Date de début : *est aujourd'hui* · *Grouper par : Jour* · filtre **Source = ta montre** (« Apple Watch de Mehdi »). Sans filtre, iPhone + montre s'additionnent (2 383 au lieu de 1 590 dans Santé) ; Raccourcis ne sait pas refaire la fusion de Santé, et la montre est la source la plus proche du total (1 520). Un jour sans montre : saisir à la main dans l'app.
-2. **Calculer des statistiques** — *Somme* des échantillons trouvés.
-3. **Obtenir le contenu de l'URL** — URL = `SHEETS_URL` de `config.js` · Méthode *POST* · Corps *JSON* avec deux champs : `token` (texte, le `TOKEN` de `config.js`) et `steps` (nombre = la Somme). Champ facultatif `date` (texte `AAAA-MM-JJ`), sinon le script prend la date du jour (fuseau de la feuille).
+Pourquoi deux sources : sans filtre, Raccourcis additionne les échantillons de l'iPhone et de la montre (2 383 au lieu de 1 590 dans Santé) et ne sait pas refaire la fusion de Santé. Une source seule ne suffit pas non plus : la montre n'est pas portée tous les jours. Le raccourci envoie donc **les deux totaux** et le script garde **le plus grand** : montre portée → montre (1 520, ≈ Santé), sinon → iPhone.
+
+Le raccourci « Muscu Pas », 5 actions :
+1. **Rechercher des échantillons de santé** — Type : *Pas* · Date de début : *est aujourd'hui* · Source : *est* « iPhone de Mehdi » · *Grouper par : Jour*.
+2. **Calculer des statistiques** — *Somme* des échantillons de l'action 1 → total iPhone.
+3. **Rechercher des échantillons de santé** — idem, Source : *est* « Apple Watch de Mehdi ».
+4. **Calculer des statistiques** — *Somme* des échantillons de l'action 3 → total montre.
+5. **Obtenir le contenu de l'URL** — URL = `SHEETS_URL` de `config.js` · Méthode *POST* · Corps *JSON* avec trois champs : `token` (texte, le `TOKEN` de `config.js`), `iphone` (nombre = Statistiques de l'action 2), `montre` (nombre = Statistiques de l'action 4). Champ facultatif `date` (texte `AAAA-MM-JJ`), sinon date du jour (fuseau de la feuille). La forme à un seul champ `steps` reste acceptée.
 
 L'app copie l'URL et le jeton pour toi : Journal → jauge 🚶 → « Remplissage automatique : comment ça marche ? ».
 
 Automatisation : Raccourcis → *Automatisation* → + → *Heure de la journée* → 12:00, 18:00 et 23:50 → *Exécuter immédiatement* → « Muscu Pas ». Chaque envoi **remplace** le total du jour (dernier envoi gagne, y compris sur une saisie manuelle déjà synchronisée).
 
-Contrat du script (`doPost`) : `{ token, steps: 8432 }` ou `{ token, steps: 8432, date: '2026-09-22' }` → réponse `{ ok: true, v: 4, steps: { '2026-09-22': { n: 8432, src: 'sante' } } }`. Un appel sans `state` est accepté (il n'écrit que les pas).
+Contrat du script (`doPost`) : `{ token, iphone: 961, montre: 1520 }` (ou `{ token, steps: 8432 }`), `date` facultative → réponse `{ ok: true, v: 5, steps: { '2026-09-22': { n: 1520, src: 'sante', detail: 'montre (montre 1520 · iphone 961)' } } }`. Un appel sans `state` est accepté (il n'écrit que les pas). Test unitaire : `node tools/test_codegs.js apps-script/Code.gs`.
 
 ## Données
 
