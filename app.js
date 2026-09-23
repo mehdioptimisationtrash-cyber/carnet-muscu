@@ -62,10 +62,11 @@
   const defaultSettings = () => ({ rest: 90, weeklyGoal: 3, autoDeload: true, apple: false, cardio: { avant: 'none', apres: 'none' }, stepsGoal: 10000 });
   const mkExo = (name, sets, opts = {}) => ({ id: uid(), name, mode: 'reps', step: 2, repMin: 8, repMax: 15, sets, last: null, best: null, stalled: 0, ...opts });
   const seed = () => ({ v: 2, rev: 0, xp: 0, settings: defaultSettings(), exos: [], session: null, history: [], weights: [], nutrition: {}, steps: {} });
+  const withCat = (e) => Cats.CATS[e.cat] ? e : { ...e, cat: Cats.catOf(e) };
   const isObj = (x) => x && typeof x === 'object' && !Array.isArray(x);
   const migrate = (d) => {
     if (!d || typeof d !== 'object') return null;
-    if (d.v === 2) return { ...seed(), ...d, settings: { ...defaultSettings(), ...(d.settings || {}) }, history: Array.isArray(d.history) ? d.history : [], weights: Array.isArray(d.weights) ? d.weights : [], nutrition: isObj(d.nutrition) ? d.nutrition : {}, steps: isObj(d.steps) ? d.steps : {} };
+    if (d.v === 2) return { ...seed(), ...d, exos: (Array.isArray(d.exos) ? d.exos : []).map(withCat), settings: { ...defaultSettings(), ...(d.settings || {}) }, history: Array.isArray(d.history) ? d.history : [], weights: Array.isArray(d.weights) ? d.weights : [], nutrition: isObj(d.nutrition) ? d.nutrition : {}, steps: isObj(d.steps) ? d.steps : {} };
     const exos = (d.seances || []).flatMap(s => s.exos.map(e => mkExo(e.name, Array.from({ length: e.series || 3 }, () => ({ charge: e.charge, reps: typeof e.reps === 'number' ? e.reps : parseInt(e.reps) || 30 })), typeof e.reps === 'string' ? { mode: 'temps', repMin: 20, repMax: 120 } : {})));
     return { ...seed(), rev: d.rev || 0, exos };
   };
@@ -82,6 +83,23 @@
   function absorb(patch) { state = { ...state, ...patch }; writeCache(state); render(); }
   const updExo = (id, fn) => ({ ...state, exos: state.exos.map(e => e.id === id ? fn(e) : e) });
   const targetsOf = (e) => (state.session?.targets?.[e.id]) || e.sets;
+  // + / − une série, à tout moment : en séance, la cible ET la pastille à valider suivent tout de suite
+  function addSet(exoId) {
+    const e = state.exos.find(x => x.id === exoId);
+    const t = { ...(targetsOf(e).at(-1) || e.sets.at(-1) || { charge: 'PDC', reps: e.repMin }), fails: 0 };
+    let next = updExo(exoId, x => ({ ...x, sets: [...x.sets, { ...(x.sets.at(-1) || t), fails: 0 }] }));
+    const s = next.session;
+    if (s) next = { ...next, session: { ...s, targets: { ...s.targets, [exoId]: [...targetsOf(e), t] }, results: { ...s.results, [exoId]: [...(s.results[exoId] || []), { charge: t.charge, reps: t.reps, done: null }] } } };
+    commit(next);
+  }
+  function removeSet(exoId) {
+    const e = state.exos.find(x => x.id === exoId);
+    if (e.sets.length <= 1) return;
+    let next = updExo(exoId, x => ({ ...x, sets: x.sets.slice(0, -1) }));
+    const s = next.session;
+    if (s) next = { ...next, session: { ...s, targets: { ...s.targets, [exoId]: targetsOf(e).slice(0, -1) }, results: { ...s.results, [exoId]: (s.results[exoId] || []).slice(0, -1) } } };
+    commit(next);
+  }
 
   /* ---------- cardio chronométré & pont Apple (Raccourcis iOS) ---------- */
   const cardioSec = (c) => c ? c.sec + (c.startedAt ? Math.floor((Date.now() - c.startedAt) / 1000) : 0) : 0;
@@ -144,8 +162,11 @@
     return out;
   }
   const challengeText = (e, cs) => cs.map(c => `S${c.i + 1} +${c.kind === 'charge' ? c.delta + ' kg' : plural(c.delta, isTemps(e) ? 's' : 'rep').replace(/^(\d+) s(s)?$/, '$1 s')}`).join(' · ');
-  const allChallenges = () => state.exos.map(e => ({ e, cs: challengesOf(e) })).filter(x => x.cs.length);
-  const potentialXp = () => XP.session + state.exos.reduce((a, e) => a + e.sets.length * (XP.set + XP.hit), 0) + allChallenges().reduce((a, x) => a + x.cs.length * XP.challenge, 0);
+  // exercices du jour : ceux de la catégorie à faire (Devant / Derrière en alternance)
+  const nextCat = () => Cats.nextCat(state);
+  const dayExos = () => state.exos.filter(e => Cats.catOf(e) === nextCat());
+  const allChallenges = () => dayExos().map(e => ({ e, cs: challengesOf(e) })).filter(x => x.cs.length);
+  const potentialXp = () => XP.session + dayExos().reduce((a, e) => a + e.sets.length * (XP.set + XP.hit), 0) + allChallenges().reduce((a, x) => a + x.cs.length * XP.challenge, 0);
 
   function nextTarget(e, target, r) {
     const base = { charge: target.charge, reps: target.reps, fails: target.fails || 0 };
@@ -211,12 +232,13 @@
     const inS = !!state.session;
     const chal = allChallenges();
     const nChal = chal.reduce((a, x) => a + x.cs.length, 0);
-    $('#sessionTitle').textContent = inS ? (state.session.light ? 'Séance légère en cours' : 'Séance en cours') : 'Prochaine séance';
+    const todo = nextCat();
+    $('#sessionTitle').textContent = inS ? (state.session.light ? 'Séance légère en cours' : 'Séance en cours') : `Prochaine séance : ${Cats.CATS[todo]}`;
     if (inS) $('#sessionMeta').textContent = state.session.light ? 'Charges −10 %, aucun défi : on maintient.' : 'Touche une série pour la valider ou l’ajuster';
     else if (!state.exos.length) $('#sessionMeta').textContent = 'Ajoute ton premier exercice ci-dessous.';
     else {
       const reps = chal.reduce((a, x) => a + x.cs.filter(c => c.kind === 'reps').length, 0), ch = nChal - reps;
-      $('#sessionMeta').textContent = nChal ? `⚡ ${plural(nChal, 'défi')} aujourd’hui : ${[reps && `+1 rep ×${reps}`, ch && `+charge ×${ch}`].filter(Boolean).join(', ')} · jusqu’à +${potentialXp()} XP` : `${plural(state.exos.length, 'exercice')} · réussis tout pour débloquer les défis`;
+      $('#sessionMeta').textContent = nChal ? `⚡ ${plural(nChal, 'défi')} aujourd’hui : ${[reps && `+1 rep ×${reps}`, ch && `+charge ×${ch}`].filter(Boolean).join(', ')} · jusqu’à +${potentialXp()} XP` : `${plural(dayExos().length, 'exercice')} · réussis tout pour débloquer les défis`;
     }
     $('#btnStart').hidden = inS || !state.exos.length;
     $('#btnCancelTop').hidden = !inS;
@@ -224,7 +246,17 @@
     root.replaceChildren();
     const currentId = inS ? state.exos.find(e => (state.session.results[e.id] || []).some(r => r.done === null))?.id : null;
     if (inS && state.session.cardio?.avant) root.append(cardioCard('avant'));
-    for (const e of state.exos) root.append(exoCard(e, inS, e.id === currentId));
+    // la catégorie du jour d'abord (couleur « à faire »), l'autre ensuite (couleur « en attente »)
+    for (const cat of [todo, Cats.other(todo)]) {
+      const list = state.exos.filter(e => Cats.catOf(e) === cat);
+      if (!list.length) continue;
+      const isTodo = cat === todo;
+      root.append(el('div', { class: `cat-head ${isTodo ? 'todo' : 'wait'}` },
+        el('b', { text: `${isTodo ? '▶ À faire' : '⏸ En attente'} · ${Cats.CATS[cat]}` }),
+        el('small', { text: isTodo ? (state.history.length ? 'pas faits à la dernière séance' : 'première séance') : 'pour la séance d’après' }),
+        ...(!inS && isTodo ? [el('button', { class: 'cat-swap', type: 'button', text: `Faire ${Cats.CATS[Cats.other(cat)]} ⇄`, onclick: () => commit({ ...state, settings: { ...state.settings, nextCat: { cat: Cats.other(cat), after: state.history.at(-1)?.at || 0 } } }) })] : [])));
+      for (const e of list) root.append(exoCard(e, inS, e.id === currentId, isTodo));
+    }
     if (inS && state.session.cardio?.apres) root.append(cardioCard('apres'));
   }
   const newCardio = (type) => ({ type, startedAt: null, sec: 0, done: false });
@@ -262,7 +294,7 @@
       el('div', { class: 'fields' }, el('div', { class: 'field wide' }, el('label', { for: 'cfMin', text: 'Durée réelle' }), selMin)),
       el('div', { class: 'actions' }, el('button', { class: 'btn primary big', type: 'button', text: 'Enregistrer', onclick: () => { commit(updCardio(pos, x => ({ ...x, sec: Number(selMin.value) * 60, startedAt: null, done: true }))); closeSheet(); } })));
   }
-  function exoCard(e, inS, current) {
+  function exoCard(e, inS, current, isTodo) {
     const res = inS ? (state.session.results[e.id] || []) : [];
     const T = targetsOf(e);
     const chalIdx = new Set((inS && state.session.light) ? [] : challengesOf(e, T).map(c => c.i));
@@ -288,12 +320,13 @@
         el('span', { class: 'reps', html: `${shown.reps}<small>${isTemps(e) ? ' s' : (inS && r?.done ? `/${t.reps}` : '')}</small>` }),
         el('span', { class: 'ch', text: label || (isTemps(e) ? `série ${i + 1}` : fmtKg(shown.charge)) })));
     });
+    sets.append(el('button', { class: 'set add-set', type: 'button', id: `add-${e.id}`, 'aria-label': `Ajouter une série à ${e.name}`, onclick: () => addSet(e.id) }, el('span', { class: 'reps', text: '+' }), el('span', { class: 'ch', text: 'série' })));
     const foot = el('div', { class: 'exo-foot' });
     if (e.last) foot.append(el('span', { class: 'last', text: `dernière fois : ${e.last.map(r => r.done ? fmtReps(e, r.reps) : '–').join(' · ')}` }));
     if (!isTemps(e)) foot.append(el('span', { class: 'pbar', title: 'Progression vers le prochain palier' }, el('i', { style: `width:${Math.round(exoProgress(e) * 100)}%` })));
     if (e.best?.e1rm) foot.append(el('span', { text: `record ≈ ${e.best.e1rm} kg (1RM)` }));
     const tip = tipFor(e); if (tip) foot.append(el('span', { class: `tip${chalIdx.size ? ' strong' : ''}`, text: tip }));
-    return el('div', { class: `exo${current ? ' current' : ''}`, id: `x-${e.id}` }, head, sets, foot);
+    return el('div', { class: `exo ${isTodo ? 'cat-todo' : 'cat-wait'}${current ? ' current' : ''}`, id: `x-${e.id}` }, head, sets, foot);
   }
   function renderDock() {
     const s = state.session;
@@ -391,11 +424,11 @@
   function openMenu(exoId) {
     const e = state.exos.find(x => x.id === exoId);
     const idx = state.exos.indexOf(e);
-    const upd = (fn) => { commit(updExo(exoId, fn)); closeSheet(); };
     const selMin = selectEl('mMin', isTemps(e) ? [10, 15, 20, 30, 45, 60] : [5, 6, 8, 10, 12], e.repMin, (o) => isTemps(e) ? `${o} s` : `${o} reps`);
     const selMax = selectEl('mMax', isTemps(e) ? [45, 60, 90, 120, 180] : [10, 12, 15, 20], e.repMax, (o) => isTemps(e) ? `${o} s` : `${o} reps`);
     const selStep = selectEl('mStep', [0.5, 1, 2, 2.5, 3, 4, 5, 7, 10], e.step, (o) => `+${o} kg`);
     const selMode = selectEl('mMode', ['reps', 'temps'], e.mode, (o) => o === 'reps' ? 'Répétitions' : 'Temps (secondes)');
+    const selCat = selectEl('mCat', Object.keys(Cats.CATS), Cats.catOf(e), (o) => o === 'devant' ? 'Devant (pecs, biceps, quadri, abdos…)' : 'Derrière (dos, ischios, fessiers, triceps…)');
     const inStack = el('input', { type: 'text', id: 'mStack', inputmode: 'decimal', placeholder: 'ex. 9, 16, 23, 30, 36, 43, 50', value: hasStack(e) ? e.stack.join(', ') : '', 'aria-label': 'Plaques de la machine' });
     const stackHint = el('p', { class: 'hint' });
     const refreshHint = () => {
@@ -415,6 +448,7 @@
         el('div', { class: 'field' }, el('label', { for: 'mMax', text: 'Reps du palier' }), selMax),
         el('div', { class: 'field' }, el('label', { for: 'mStep', text: 'Cran (haltères / barre)' }), selStep),
         el('div', { class: 'field' }, el('label', { for: 'mMode', text: 'Type' }), selMode),
+        el('div', { class: 'field wide' }, el('label', { for: 'mCat', text: 'Séance' }), selCat),
         el('div', { class: 'field wide' }, el('label', { for: 'mStack', text: 'Plaques de la machine (kg, séparées par des virgules)' }), inStack, stackHint)),
       el('div', { class: 'menu' },
         el('button', {
@@ -422,7 +456,7 @@
             const stackVals = parseStack(inStack.value);
             const stack = stackVals.length > 1 ? stackVals : undefined;
             const repMin = Number(selMin.value), repMax = Math.max(repMin + 1, Number(selMax.value)), step = Number(selStep.value), mode = selMode.value;
-            const patch = { repMin, repMax, step, mode, stack };
+            const patch = { repMin, repMax, step, mode, stack, cat: selCat.value };
             // la pile vient d'être saisie/modifiée : on recale tout de suite les charges affichées sur les vraies plaques
             const snap = (t) => stack && typeof t.charge === 'number' ? { ...t, charge: snapToStack({ stack }, t.charge) } : t;
             let next = { ...state, exos: state.exos.map(x => x.id === exoId ? { ...x, ...patch, sets: x.sets.map(snap) } : x) };
@@ -432,8 +466,8 @@
           },
         }),
         el('div', { class: 'row2' },
-          el('button', { class: 'btn', type: 'button', text: '+ une série', onclick: () => upd(x => ({ ...x, sets: [...x.sets, { ...(x.sets.at(-1) || { charge: 'PDC', reps: x.repMin }), fails: 0 }] })) }),
-          el('button', { class: 'btn', type: 'button', text: '− dernière série', onclick: () => upd(x => ({ ...x, sets: x.sets.slice(0, -1) })) })),
+          el('button', { class: 'btn', type: 'button', text: '+ une série', onclick: () => { addSet(exoId); closeSheet(); } }),
+          el('button', { class: 'btn', type: 'button', text: '− dernière série', onclick: () => { removeSet(exoId); closeSheet(); } })),
         el('div', { class: 'row2' },
           el('button', { class: 'btn', type: 'button', text: '↑ Monter', onclick: () => moveExo(idx, -1) }),
           el('button', { class: 'btn', type: 'button', text: '↓ Descendre', onclick: () => moveExo(idx, 1) })),
@@ -476,7 +510,10 @@
       el('div', { class: 'actions', style: 'margin-top:12px' }, el('button', { class: 'btn primary', type: 'button', text: 'Retour', onclick: openSettings })));
   }
   function moveExo(i, d) {
-    const j = i + d; if (j < 0 || j >= state.exos.length) return;
+    // l'affichage est groupé par catégorie : on échange avec le voisin de la même catégorie
+    const cat = Cats.catOf(state.exos[i]);
+    let j = i + d; while (j >= 0 && j < state.exos.length && Cats.catOf(state.exos[j]) !== cat) j += d;
+    if (j < 0 || j >= state.exos.length) return;
     const exos = [...state.exos]; [exos[i], exos[j]] = [exos[j], exos[i]];
     commit({ ...state, exos }); closeSheet();
   }
@@ -489,7 +526,8 @@
     if (ev.key !== 'Enter') return;
     const name = ev.target.value.trim(); if (!name) return;
     ev.target.value = '';
-    const exo = mkExo(name, [{ charge: 10, reps: 10 }, { charge: 10, reps: 10 }, { charge: 10, reps: 10 }]);
+    // rangé d'après son nom (pecs, dos, triceps…), sinon dans la séance du jour ; modifiable dans ⋯
+    const exo = mkExo(name, [{ charge: 10, reps: 10 }, { charge: 10, reps: 10 }, { charge: 10, reps: 10 }], { cat: Cats.guessCat(name) || nextCat() });
     let next = { ...state, exos: [...state.exos, exo] };
     if (next.session) {
       // ajouté en pleine séance : on lui crée tout de suite ses cibles/résultats, sinon ses pastilles restent muettes
@@ -619,7 +657,8 @@
     xp += cardio.reduce((a, c) => a + Math.min(XP.cardioCap, Math.round(c.sec / 60) * XP.cardioMin), 0);
     const streak = streakWeeks({ history: continuation ? state.history : [...state.history, { date }] });
     if (!continuation) xp += Math.min(XP.streakMax, XP.streakPerWeek * Math.max(0, streak - 1));
-    let entry = { date, at: Date.now(), min: Math.round((Date.now() - s.startedAt) / 60000), volume: Math.round(volume), xp, setsDone, setsTotal, fails, prs, paliers, light, challenges: { total: chalTotal, won: chalWon }, cardio, exos: exosLog };
+    const cat = Cats.entryCat({ exos: exosLog }, state.exos) || nextCat();
+    let entry = { date, cat, at: Date.now(), min: Math.round((Date.now() - s.startedAt) / 60000), volume: Math.round(volume), xp, setsDone, setsTotal, fails, prs, paliers, light, challenges: { total: chalTotal, won: chalWon }, cardio, exos: exosLog };
     let history;
     if (continuation) {
       entry = mergeEntries(prevEntry, entry);
@@ -638,7 +677,7 @@
   // remplace les cibles/records (déjà à jour dans `state.exos`), garde le détail le plus récent par exercice.
   function mergeEntries(a, b) {
     return {
-      date: a.date, at: b.at, min: (a.min || 0) + (b.min || 0), volume: Math.round((a.volume || 0) + (b.volume || 0)),
+      date: a.date, cat: Cats.entryCat({ exos: { ...a.exos, ...b.exos } }, state.exos) || b.cat, at: b.at, min: (a.min || 0) + (b.min || 0), volume: Math.round((a.volume || 0) + (b.volume || 0)),
       xp: (a.xp || 0) + (b.xp || 0), setsDone: a.setsDone + b.setsDone, setsTotal: a.setsTotal + b.setsTotal, fails: a.fails + b.fails,
       prs: [...new Set([...a.prs, ...b.prs])], paliers: [...new Set([...a.paliers, ...b.paliers])], light: a.light && b.light,
       challenges: { total: (a.challenges?.total || 0) + (b.challenges?.total || 0), won: (a.challenges?.won || 0) + (b.challenges?.won || 0) },

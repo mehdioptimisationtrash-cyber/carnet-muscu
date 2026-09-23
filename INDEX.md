@@ -1,6 +1,6 @@
 # carnet-muscu — INDEX
 
-> Dernière analyse : 2026-09-22
+> Dernière analyse : 2026-09-23
 
 Carnet de musculation personnel de Mehdi, en PWA installable sur iPhone, sauvegardé dans une feuille Google Sheets via un script Apps Script. HTML/CSS/JS vanilla, sans framework, hébergé sur GitHub Pages (gratuit).
 
@@ -16,10 +16,12 @@ Carnet de musculation personnel de Mehdi, en PWA installable sur iPhone, sauvega
 | `app.js` | logique : modèle `state` (v2), progression par série (double progression 10→15 reps puis +cran de charge), séance (démarrer / valider série / repos / terminer), XP-niveaux-badges, stats & axes d'amélioration, export/import JSON, démarrage avec fusion cache ↔ feuille |
 | `sync.js` | couche Google Sheets : `load(quiet)` (GET), `scheduleSave()` (POST regroupé 1 s), file d'attente hors-ligne (`localStorage` drapeau `carnet-muscu-outbox`), jours nutrition / pas modifiés (`markDay`, `markSteps`), reprise sur `online` / `visibilitychange` |
 | `steps.js` | pas quotidiens : jauge 🚶 du Journal (saisie manuelle), relecture de la feuille au retour au premier plan (`refresh`), aide au raccourci iOS, tuile/axe/graphique 14 j dans Stats |
+| `categories.js` | séances alternées Devant / Derrière (module pur, `window.Cats`) : `guessCat(nom)` par mots-clés, `catOf(exo)`, `entryCat(séance)`, `nextCat(state)` |
 | `config.js` | `SHEETS_URL` (URL Apps Script `/exec`) + `TOKEN` — **visibles publiquement**, seule protection = le script ne touche que cette feuille |
 | `sw.js` | service worker : cache des fichiers statiques (réseau d'abord pour les pages), jamais les appels Google ; bump `CACHE_VERSION` à chaque déploiement |
 | `manifest.webmanifest`, `icons/` | PWA (`standalone`, icônes 192/512/apple-touch 180 générées depuis 🏋️) |
 | `apps-script/Code.gs` | script Google (v5) à coller dans la feuille : `doGet` renvoie l'état, `doPost` l'écrit (onglets `state`, `historique`, `exercices`, `nutrition`, `pas`) ; accepte aussi un POST « raccourci » `{token, steps, date?}` sans `state`, ou `{token, iphone, montre}` → max |
+| `tools/test_categories.js`, `tools/e2e_categories.py` | tests Devant / Derrière et « + série » en séance |
 | `tools/make-icons.py` | régénère les icônes (Playwright) |
 | `tools/e2e_local.py` | test de bout en bout local (feuille Google simulée par interception) ; `e2e_nutrition.py`, `e2e_cardio.py`, `e2e_steps.py` idem par fonctionnalité |
 | `exports/` (gitignoré) | `migration.json` = données issues de l'ancien fichier iCloud (12 exos, séance du 15/09) |
@@ -87,6 +89,13 @@ Déploiement : `git push` (Pages sur `main`, racine). Penser à `CACHE_VERSION` 
 - **Relecture** : `Steps.refresh()` sur `visibilitychange` (≤ 1×/min, GET silencieux `Sync.load(true)`) fusionne les pas de la feuille via `App.absorb(patch)` (nouvelle passerelle : met à jour l'état + cache + rendu **sans** nouvelle `rev` ni sauvegarde). Bouton « ↻ Relire la feuille » dans la feuille de saisie.
 - **UI** : jauge 🚶 cliquable dans la carte du jour (`#stepsGauge`, classe `.gauge-btn`), marque 🚶 dans le calendrier si objectif atteint, recap « 🚶 N pas », objectif dans ⚙︎ Réglages (`settings.stepsGoal`, défaut 10 000 — demandé par Mehdi le 2026-09-22 ; aucune valeur n'était encore écrite dans la feuille), tuile « Pas / jour (7 j) », axe Marche (3 niveaux), graphique 14 jours, badge « 7 jours de marche à l'objectif ». « Remettre à zéro » écrit 0 (pas de suppression de ligne côté feuille). SW v12.
 
+## Séances Devant / Derrière (2026-09-23, demande de Mehdi)
+- Chaque exo a `cat: 'devant'|'derriere'` (Devant = pecs, biceps, quadri, abdos, épaules avant ; Derrière = dos, ischios, fessiers, triceps, lombaires, oiseau). Deviné par le nom à la migration et à l'ajout (sinon catégorie du jour), modifiable dans ⋯ → « Séance ».
+- Prochaine séance = l'inverse de la dernière (`entry.cat`, sinon majorité de ses exos). Bouton « Faire X ⇄ » = `settings.nextCat = {cat, after: dernière entry.at}`, annulé dès la séance suivante.
+- Affichage groupé : « ▶ À faire » en bleu (accent) d'abord, « ⏸ En attente » en violet ensuite ; l'or reste réservé aux défis. Défis, XP potentiels et compteur du bandeau ne portent que sur la catégorie à faire. ↑/↓ échange avec le voisin de la même catégorie.
+- **Bug corrigé** : « + une série » / « − dernière série » en séance ne modifiaient que `exo.sets` (visible seulement après Terminer) → `addSet`/`removeSet` modifient aussi `session.targets`/`results`. Pastille « + série » ajoutée au bout de chaque exo.
+- Données corrigées à la main le 23/09 (POST direct, sauvegarde avant correction dans le scratchpad de la session) : Développé couché 4×8 @40, Poulie extension épaule 4×10 @23, Poulie triceps 4×12 @23 (plaque 23 ajoutée en bas de sa pile) ; séance du 23/09 = Devant, volume 10 304 kg, 24 séries.
+
 ## Logique anti-doublon (2026-09-18)
 - `finishSession()` : si `state.history.at(-1).date === today()`, la nouvelle séance **fusionne** avec la précédente (`mergeEntries`) au lieu de créer une 2e entrée — additionne sets/volume/xp/défis, union prs/paliers, `exos` = dernière valeur par id, `light` = ET des deux. Pas de bonus `XP.session` ni de bonus de série sur une reprise (`continuation`).
 - `weekCount()`/les chips comptent des **entrées d'historique**, donc dépendent de cette dédup par date — ne pas la retirer sans revoir ces compteurs.
@@ -99,7 +108,7 @@ Déploiement : `git push` (Pages sur `main`, racine). Penser à `CACHE_VERSION` 
 - [x] `Code.gs` v5 en ligne (GET → `v:5`, 1 845 pas reçus le 22/09).
 - [ ] Mehdi : passer le raccourci à 5 actions (README §6), puis automatisation Heure de la journée (23:50, « Exécuter immédiatement ») + « Toujours autoriser » au dialogue d'envoi.
 - [ ] Mehdi : créer les raccourcis iOS `Muscu Renfo/Elliptique/Marche/Fin` et activer ⚙︎ → Apple Watch.
-- [ ] `app.js` fait ~865 lignes (limite 800) : extraire les stats dans `stats.js` à la prochaine évolution.
+- [ ] `app.js` fait ~900 lignes (limite 800) : extraire les stats dans `stats.js` à la prochaine évolution.
 - [ ] Mehdi : installer sur l'iPhone (Safari → Partager → Sur l'écran d'accueil) et tester une séance réelle.
 - [ ] Saisir les piles de plaques des machines de la salle (⋯ → « Plaques de la machine » sur chaque exo, ou me les dicter).
 - [ ] Éventuel : réglage du temps de repos dans l'interface (aujourd'hui 90 s fixe dans `settings.rest`).

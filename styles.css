@@ -85,6 +85,22 @@ h1 { font-size: 30px; font-weight: 700; letter-spacing: -.01em; margin: 0; line-
 .exo { padding: 12px 4px 12px; border-bottom: 1px solid var(--line); }
 .exo.current { background: var(--bg-soft); margin-inline: -12px; padding-inline: 12px; border-radius: 8px; border-bottom-color: transparent; }
 .exo-head { display: flex; align-items: baseline; gap: 8px; }
+/* séances alternées : catégorie du jour (« à faire ») vs l'autre (« en attente ») */
+.cat-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; margin: 18px 0 2px; padding: 8px 12px; border-radius: 8px; }
+.cat-head b { font-size: 13px; letter-spacing: .02em; }
+.cat-head small { color: var(--muted); font-size: 12px; flex: 1; }
+.cat-head.todo { background: var(--accent-soft); color: var(--accent); }
+.cat-head.wait { background: var(--violet-soft); color: var(--violet); }
+.cat-swap { border: 1px solid currentColor; background: none; color: inherit; font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px; cursor: pointer; }
+.cat-swap:hover { background: var(--bg-card); }
+.exo.cat-todo { border-left: 3px solid var(--accent); padding-left: 10px; }
+.exo.cat-wait { border-left: 3px solid var(--violet); padding-left: 10px; }
+.exo.cat-wait .exo-name { color: var(--violet); }
+.exo.cat-wait .sets { opacity: .7; }
+.exo.current.cat-todo, .exo.current.cat-wait { margin-inline: 0; }
+.set.add-set { border-style: dashed; color: var(--muted); background: transparent; }
+.set.add-set .reps { font-size: 20px; }
+.set.add-set:hover { color: var(--accent); }
 .exo-name { font-weight: 600; font-size: 15.5px; flex: 1; min-width: 0; outline: none; border-radius: 3px; padding: 0 3px; word-break: break-word; }
 .exo-name:focus { box-shadow: 0 0 0 2px var(--accent); }
 .exo-charge { font-size: 13px; color: var(--muted); white-space: nowrap; }
