@@ -107,7 +107,7 @@ L'app copie l'URL et le jeton pour toi : Journal → jauge 🚶 → « Remplissa
 Raccourcis → onglet *Automatisation* → **+** → *Heure de la journée* → heure (ex. **06:00**) → *Tous les jours* → **Exécuter immédiatement** (et décocher « Me notifier lors de l'exécution ») → Suivant → choisir « Muscu Pas » → OK.
 Horaires : **06:00, 09:00, 12:00, 15:00, 18:00, 21:00, 23:55** (+ 03:00 si tu veux, inutile la nuit). Le 23:55 fige le total de la journée. À la première exécution, iOS demande d'autoriser l'envoi vers script.google.com et l'accès à Santé : **Toujours autoriser**. Santé n'est lisible que téléphone **déverrouillé une fois depuis le démarrage** ; si l'iPhone est éteint à l'heure dite, l'envoi suivant rattrape (il remplace le total du jour).
 
-Chaque envoi **remplace** le total du jour (dernier envoi gagne, y compris sur une saisie manuelle déjà synchronisée).
+Chaque envoi du raccourci **remplace** le total du jour **s'il est plus grand** (Code.gs v6) : un envoi à 0 ou en baisse, typique d'une automatisation qui tourne iPhone verrouillé (Santé illisible), est ignoré. Une saisie manuelle dans l'app peut, elle, corriger à la baisse.
 
 Contrat du script (`doPost`) : `{ token, iphone: 961, montre: 1520 }` (ou `{ token, steps: 8432 }`), `date` facultative → réponse `{ ok: true, v: 5, steps: { '2026-09-22': { n: 1520, src: 'sante', detail: 'montre (montre 1520 · iphone 961)' } } }`. Un appel sans `state` est accepté (il n'écrit que les pas). Test unitaire : `node tools/test_codegs.js apps-script/Code.gs`.
 

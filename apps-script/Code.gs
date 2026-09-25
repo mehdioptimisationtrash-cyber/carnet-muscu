@@ -215,11 +215,15 @@ function normalizeSteps(body) {
 function upsertSteps(ss, steps) {
   const sh = stepsSheet(ss);
   const n = sh.getLastRow() - 1;
-  const existing = n > 0 ? sh.getRange(2, 1, n, 1).getValues().map((r) => dateKey(r[0])) : [];
+  const cur = n > 0 ? sh.getRange(2, 1, n, 2).getValues() : [];
+  const existing = cur.map((r) => dateKey(r[0]));
   const now = new Date();
   Object.keys(steps).forEach((date) => {
-    const row = [date, steps[date].n, steps[date].src + (steps[date].detail ? ' · ' + steps[date].detail : ''), now];
     const i = existing.indexOf(date);
+    // envoi du raccourci (Santé) : les pas d'une journée ne font que monter. Un total plus petit = Santé illisible
+    // (iPhone verrouillé à l'heure de l'automatisation) → on garde l'ancien. La saisie manuelle, elle, peut corriger à la baisse.
+    if (i >= 0 && steps[date].src === 'sante' && Number(cur[i][1]) > steps[date].n) return;
+    const row = [date, steps[date].n, steps[date].src + (steps[date].detail ? ' · ' + steps[date].detail : ''), now];
     if (i >= 0) sh.getRange(i + 2, 1, 1, 4).setValues([row]);
     else { sh.appendRow(row); existing.push(date); }
   });
