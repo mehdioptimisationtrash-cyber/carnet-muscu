@@ -1,5 +1,5 @@
 /**
- * Carnet Muscu — script Google Apps Script (VERSION 5 : nutrition + pas quotidiens iPhone/montre).
+ * Carnet Muscu — script Google Apps Script (VERSION 6 : nutrition + pas quotidiens iPhone/montre + macros d'Assiette).
  * À coller dans la feuille (Extensions → Apps Script), puis :
  *   Déployer → Gérer les déploiements → ✏️ → Version : Nouvelle version → Déployer  (l'URL ne change pas).
  *
@@ -12,11 +12,19 @@
  *                  OU par un raccourci iOS qui lit Santé et envoie { token, iphone: 961, montre: 1520 } — le script garde
  *                  le plus grand des deux (montre portée → montre ; sinon iPhone). { token, steps: 8432 } reste accepté.
  *                  Date facultative (= aujourd'hui dans le fuseau de la feuille), cf. README §6.
+ *  - macros      : une ligne par jour (kcal, protéines, glucides, lipides, fibres) recopiée de la feuille de l'app
+ *                  Assiette toutes les 3 h par un déclencheur Google (aucun téléphone nécessaire). Mise en place, une fois :
+ *                  colle l'adresse de la feuille Assiette dans ASSIETTE_SHEET_URL, enregistre, choisis la fonction
+ *                  « installerAssiette » en haut de l'éditeur → Exécuter → autorise l'accès. Cf. README §7.
  *
  * TOKEN doit être identique à celui de config.js sur le site.
  */
 const TOKEN = 'c34f34c52f50ef6db3b1a960e44f8f66';
-const VERSION = 5;
+const VERSION = 6;
+// Adresse de la feuille Google de l'app Assiette (https://docs.google.com/spreadsheets/d/…/edit). Vide = pas de macros.
+const ASSIETTE_SHEET_URL = '';
+const ASSIETTE_EVERY_HOURS = 3;
+const MACROS_DAYS_SENT = 120;
 const NUTRITION_DAYS_SENT = 120;   // l'app reçoit les 120 derniers jours ; tout reste dans la feuille
 const STEPS_DAYS_SENT = 120;
 const STEPS_MAX = 200000;
@@ -65,6 +73,7 @@ function readState(ss) {
   state.history = rows.filter((r) => r[9]).map((r) => JSON.parse(r[9]));
   state.nutrition = readDays(ss);
   state.steps = readSteps(ss);
+  state.macros = readMacros(ss);
   return state;
 }
 
@@ -74,6 +83,7 @@ function writeState(ss, state) {
   delete rest.history;
   delete rest.nutrition;
   delete rest.steps;
+  delete rest.macros;
 
   const sh = sheet(ss, 'state', ['sauvegarde — ne pas modifier']);
   sh.getRange('A2').setValue(JSON.stringify(rest));
@@ -226,6 +236,59 @@ function readSteps(ss) {
   const outSteps = {};
   rows.forEach((r) => { const v = Math.round(Number(r[1])); if (r[0] && v >= 0) outSteps[dateKey(r[0])] = { n: v, src: String(r[2]).indexOf('manuel') === 0 ? 'manuel' : 'sante' }; });
   return outSteps;
+}
+
+/* ---------- macros recopiées de la feuille Assiette (onglet « jours ») ---------- */
+const MACROS_HEADER = ['date', 'kcal', 'protéines (g)', 'glucides (g)', 'lipides (g)', 'fibres (g)', 'mis à jour'];
+
+// À exécuter une fois depuis l'éditeur : installe le déclencheur toutes les 3 h (sans doublon) et fait une première copie.
+function installerAssiette() {
+  if (!ASSIETTE_SHEET_URL) throw new Error('Colle d’abord l’adresse de la feuille Assiette dans ASSIETTE_SHEET_URL, puis enregistre.');
+  ScriptApp.getProjectTriggers().filter((t) => t.getHandlerFunction() === 'syncAssiette').forEach((t) => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('syncAssiette').timeBased().everyHours(ASSIETTE_EVERY_HOURS).create();
+  const n = syncAssiette();
+  Logger.log('Déclencheur installé (toutes les ' + ASSIETTE_EVERY_HOURS + ' h) — ' + n + ' jours recopiés depuis Assiette.');
+}
+
+function syncAssiette() {
+  if (!ASSIETTE_SHEET_URL) return 0;
+  const src = SpreadsheetApp.openByUrl(ASSIETTE_SHEET_URL).getSheetByName('jours');
+  const n = src ? src.getLastRow() - 1 : 0;
+  if (n <= 0) return 0;
+  const macros = macrosFromRows(src.getRange(2, 1, n, 6).getValues(), dateKey);
+  const dates = Object.keys(macros).sort();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = sheet(ss, 'macros', MACROS_HEADER);
+  sh.getRange('A:A').setNumberFormat('@');
+  const old = sh.getLastRow() - 1;
+  if (old > 0) sh.getRange(2, 1, old, MACROS_HEADER.length).clearContent();
+  const now = new Date();
+  if (dates.length) sh.getRange(2, 1, dates.length, MACROS_HEADER.length).setValues(dates.map((d) => { const m = macros[d]; return [d, m.kcal, m.p, m.c, m.f, m.fib, now]; }));
+  return dates.length;
+}
+
+// Lignes de l'onglet « jours » d'Assiette (date, kcal, protéines, glucides, lipides, fibres) → { date: { kcal, p, c, f, fib } }.
+// Les jours vides (0 kcal) sont ignorés : rien n'a été saisi dans Assiette ce jour-là.
+function macrosFromRows(rows, toKey) {
+  const outM = {};
+  const num = (v) => { const x = Number(v); return isFinite(x) && x > 0 ? Math.round(x) : 0; };
+  rows.forEach((r) => {
+    const date = toKey(r[0]);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !(num(r[1]) > 0)) return;
+    outM[date] = { kcal: num(r[1]), p: num(r[2]), c: num(r[3]), f: num(r[4]), fib: num(r[5]) };
+  });
+  return outM;
+}
+
+function readMacros(ss) {
+  const sh = ss.getSheetByName('macros');
+  const n = sh ? sh.getLastRow() - 1 : 0;
+  if (n <= 0) return {};
+  const start = Math.max(2, n + 2 - MACROS_DAYS_SENT);
+  const rows = sh.getRange(start, 1, n + 2 - start, 7).getValues();
+  const macros = macrosFromRows(rows, dateKey);
+  rows.forEach((r) => { const d = dateKey(r[0]); if (macros[d] && r[6] && typeof r[6].getTime === 'function') macros[d].at = r[6].getTime(); });
+  return macros;
 }
 
 function sheet(ss, name, header) {

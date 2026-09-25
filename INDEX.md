@@ -1,6 +1,6 @@
 # carnet-muscu — INDEX
 
-> Dernière analyse : 2026-09-23
+> Dernière analyse : 2026-09-25
 
 Carnet de musculation personnel de Mehdi, en PWA installable sur iPhone, sauvegardé dans une feuille Google Sheets via un script Apps Script. HTML/CSS/JS vanilla, sans framework, hébergé sur GitHub Pages (gratuit).
 
@@ -20,7 +20,8 @@ Carnet de musculation personnel de Mehdi, en PWA installable sur iPhone, sauvega
 | `config.js` | `SHEETS_URL` (URL Apps Script `/exec`) + `TOKEN` — **visibles publiquement**, seule protection = le script ne touche que cette feuille |
 | `sw.js` | service worker : cache des fichiers statiques (réseau d'abord pour les pages), jamais les appels Google ; bump `CACHE_VERSION` à chaque déploiement |
 | `manifest.webmanifest`, `icons/` | PWA (`standalone`, icônes 192/512/apple-touch 180 générées depuis 🏋️) |
-| `apps-script/Code.gs` | script Google (v5) à coller dans la feuille : `doGet` renvoie l'état, `doPost` l'écrit (onglets `state`, `historique`, `exercices`, `nutrition`, `pas`) ; accepte aussi un POST « raccourci » `{token, steps, date?}` sans `state`, ou `{token, iphone, montre}` → max |
+| `apps-script/Code.gs` | script Google (v6 : + `syncAssiette` toutes les 3 h → onglet `macros`, `installerAssiette()` à lancer une fois) à coller dans la feuille : `doGet` renvoie l'état, `doPost` l'écrit (onglets `state`, `historique`, `exercices`, `nutrition`, `pas`) ; accepte aussi un POST « raccourci » `{token, steps, date?}` sans `state`, ou `{token, iphone, montre}` → max |
+| `tools/e2e_assiette.py` | macros Assiette dans le Journal / stats, jamais renvoyées, relecture |
 | `tools/test_categories.js`, `tools/e2e_categories.py` | tests Devant / Derrière et « + série » en séance |
 | `tools/make-icons.py` | régénère les icônes (Playwright) |
 | `tools/e2e_local.py` | test de bout en bout local (feuille Google simulée par interception) ; `e2e_nutrition.py`, `e2e_cardio.py`, `e2e_steps.py` idem par fonctionnalité |
@@ -88,6 +89,11 @@ Déploiement : `git push` (Pages sur `main`, racine). Penser à `CACHE_VERSION` 
 - **À la demande (2026-09-22)** : bouton « 📲 Actualiser depuis Santé » (`#stepsRun`, iOS seulement) → `Steps.runShortcut()` navigue vers `shortcuts://run-shortcut?name=Muscu Pas` (`settings.stepsShortcut` pour renommer), pose `sessionStorage carnet-muscu-steps-await` ; au retour (`visibilitychange`), `refreshAfterShortcut()` relit la feuille à 0/4/10 s et toast le résultat. Le pont `shortcuts://` fonctionne ici : c'est l'action « Démarrer l'exercice » qui est réservée à la montre, pas le lancement. Couture de test : `window.__shortcutLog`.
 - **Relecture** : `Steps.refresh()` sur `visibilitychange` (≤ 1×/min, GET silencieux `Sync.load(true)`) fusionne les pas de la feuille via `App.absorb(patch)` (nouvelle passerelle : met à jour l'état + cache + rendu **sans** nouvelle `rev` ni sauvegarde). Bouton « ↻ Relire la feuille » dans la feuille de saisie.
 - **UI** : jauge 🚶 cliquable dans la carte du jour (`#stepsGauge`, classe `.gauge-btn`), marque 🚶 dans le calendrier si objectif atteint, recap « 🚶 N pas », objectif dans ⚙︎ Réglages (`settings.stepsGoal`, défaut 10 000 — demandé par Mehdi le 2026-09-22 ; aucune valeur n'était encore écrite dans la feuille), tuile « Pas / jour (7 j) », axe Marche (3 niveaux), graphique 14 jours, badge « 7 jours de marche à l'objectif ». « Remettre à zéro » écrit 0 (pas de suppression de ligne côté feuille). SW v12.
+
+## Macros Assiette & pas toutes les 3 h (2026-09-25, demande de Mehdi)
+- **Macros** : l'app sœur `../assiette` écrit sa feuille Google (onglet `jours` : date, kcal, P, G, L, fibres). `Code.gs` v6 : `syncAssiette()` (déclencheur temporel `everyHours(3)`, installé par `installerAssiette()` exécuté une fois dans l'éditeur) ouvre la feuille Assiette par `ASSIETTE_SHEET_URL` (constante à coller, vide dans le dépôt), recopie tout dans l'onglet `macros` ; `readState` renvoie `state.macros` (120 j, `{kcal,p,c,f,fib,at}`). Côté app : jamais renvoyées (`sync.js` les retire, `writeState` aussi), relues au premier plan avec les pas (`Steps.refresh` → `absorb({steps, macros})`). `nutrition.js totals(day)` : Assiette fait foi pour kcal/protéines quand le jour a des données (ligne « 🍽️ Depuis Assiette »), l'alcool reste celui du carnet. Test : `tools/e2e_assiette.py`, `macrosFromRows` dans `tools/test_codegs.js`.
+- **Pas toutes les 3 h** : iOS n'a pas de répétition horaire → 7 automatisations « Heure de la journée » (06, 09, 12, 15, 18, 21 h, 23:55) sur « Muscu Pas », README §6.
+- [ ] Mehdi : coller `Code.gs` v6 avec l'adresse de la feuille Assiette, lancer `installerAssiette`, redéployer ; créer les 7 automatisations.
 
 ## Séances Devant / Derrière (2026-09-23, demande de Mehdi)
 - Chaque exo a `cat: 'devant'|'derriere'` (Devant = pecs, biceps, quadri, abdos, épaules avant ; Derrière = dos, ischios, fessiers, triceps, lombaires, oiseau). Deviné par le nom à la migration et à l'ajout (sinon catégorie du jour), modifiable dans ⋯ → « Séance ».

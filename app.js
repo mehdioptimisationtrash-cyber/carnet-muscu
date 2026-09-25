@@ -61,12 +61,12 @@
 
   const defaultSettings = () => ({ rest: 90, weeklyGoal: 3, autoDeload: true, apple: false, cardio: { avant: 'none', apres: 'none' }, stepsGoal: 10000 });
   const mkExo = (name, sets, opts = {}) => ({ id: uid(), name, mode: 'reps', step: 2, repMin: 8, repMax: 15, sets, last: null, best: null, stalled: 0, ...opts });
-  const seed = () => ({ v: 2, rev: 0, xp: 0, settings: defaultSettings(), exos: [], session: null, history: [], weights: [], nutrition: {}, steps: {} });
+  const seed = () => ({ v: 2, rev: 0, xp: 0, settings: defaultSettings(), exos: [], session: null, history: [], weights: [], nutrition: {}, steps: {}, macros: {} });
   const withCat = (e) => Cats.CATS[e.cat] ? e : { ...e, cat: Cats.catOf(e) };
   const isObj = (x) => x && typeof x === 'object' && !Array.isArray(x);
   const migrate = (d) => {
     if (!d || typeof d !== 'object') return null;
-    if (d.v === 2) return { ...seed(), ...d, exos: (Array.isArray(d.exos) ? d.exos : []).map(withCat), settings: { ...defaultSettings(), ...(d.settings || {}) }, history: Array.isArray(d.history) ? d.history : [], weights: Array.isArray(d.weights) ? d.weights : [], nutrition: isObj(d.nutrition) ? d.nutrition : {}, steps: isObj(d.steps) ? d.steps : {} };
+    if (d.v === 2) return { ...seed(), ...d, exos: (Array.isArray(d.exos) ? d.exos : []).map(withCat), settings: { ...defaultSettings(), ...(d.settings || {}) }, history: Array.isArray(d.history) ? d.history : [], weights: Array.isArray(d.weights) ? d.weights : [], nutrition: isObj(d.nutrition) ? d.nutrition : {}, steps: isObj(d.steps) ? d.steps : {}, macros: isObj(d.macros) ? d.macros : {} };
     const exos = (d.seances || []).flatMap(s => s.exos.map(e => mkExo(e.name, Array.from({ length: e.series || 3 }, () => ({ charge: e.charge, reps: typeof e.reps === 'number' ? e.reps : parseInt(e.reps) || 30 })), typeof e.reps === 'string' ? { mode: 'temps', repMin: 20, repMax: 120 } : {})));
     return { ...seed(), rev: d.rev || 0, exos };
   };
@@ -892,7 +892,7 @@
     const steps = { ...(state.steps || {}), ...(remote?.steps || {}), ...dirtySteps };
     if (remote && remote.rev > state.rev) { state = { ...remote, nutrition: { ...remote.nutrition, ...dirty }, steps }; writeCache(state); render(); setStatus('ok', 'Synchronisé avec Google Sheets'); }
     else {
-      if (remote) { state = { ...state, nutrition: { ...remote.nutrition, ...state.nutrition }, steps }; writeCache(state); }
+      if (remote) { state = { ...state, nutrition: { ...remote.nutrition, ...state.nutrition }, steps, macros: remote.macros || state.macros }; writeCache(state); }
       if (state.rev > (remote?.rev ?? 0) || (Sync.hasOutbox() && state.rev) || Sync.dirtyDays().length || Sync.dirtySteps().length) Sync.scheduleSave(state, 0);
       else setStatus('ok', remote ? 'Synchronisé avec Google Sheets' : 'Google Sheets prêt — ajoute un exercice');
     }

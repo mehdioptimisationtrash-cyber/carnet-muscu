@@ -28,13 +28,20 @@ window.Nutrition = (() => {
   const iso = (d) => new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
   const addDays = (date, n) => { const d = new Date(date + 'T12:00:00'); d.setDate(d.getDate() + n); return iso(d); };
   const dayOf = (date) => st().nutrition?.[date] || { date, meals: [], note: '' };
-  const totals = (day) => day.meals.reduce((a, m) => ({ kcal: a.kcal + m.kcal, p: a.p + m.p, alc: a.alc + (m.alc || 0) }), { kcal: 0, p: 0, alc: 0 });
+  // Assiette (autre app, recopiée par le script toutes les 3 h) fait foi pour les calories et protéines du jour ; l'alcool reste celui du carnet
+  const assietteOf = (date) => { const a = st().macros?.[date]; return a && a.kcal > 0 ? a : null; };
+  const totals = (day) => {
+    const own = day.meals.reduce((a, m) => ({ kcal: a.kcal + m.kcal, p: a.p + m.p, alc: a.alc + (m.alc || 0) }), { kcal: 0, p: 0, alc: 0 });
+    const a = assietteOf(day.date);
+    return a ? { ...own, kcal: a.kcal, p: a.p, c: a.c, f: a.f, src: 'assiette' } : own;
+  };
+  const hasFood = (day) => day.meals.length > 0 || !!assietteOf(day.date);
   const round5 = (x) => Math.round(x / 5) * 5;
   const uid = () => Math.random().toString(36).slice(2, 9);
   const latestWeight = () => [...(st().weights || [])].sort((a, b) => a.date.localeCompare(b.date)).at(-1)?.kg;
 
   function dayStatus(day) {
-    if (!day.meals.length) return 'empty';
+    if (!hasFood(day)) return 'empty';
     const t = totals(day), c = cfg();
     if (t.kcal > c.kcal * 1.15) return 'over';
     return t.kcal <= c.kcal * 1.05 && t.p >= c.prot * 0.9 ? 'good' : 'mid';
@@ -114,6 +121,7 @@ window.Nutrition = (() => {
     return el('div', { class: 'daycard' },
       el('div', { class: 'daycard-title', text: sel === today() ? 'Aujourd’hui' : new Date(sel + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }) }),
       bar('Calories', t.kcal, c.kcal, 'kcal', true), bar('Protéines', t.p, c.prot, 'g', false),
+      ...(t.src === 'assiette' ? [el('div', { class: 'assiette-line', text: `🍽️ Depuis Assiette · glucides ${t.c} g · lipides ${t.f} g${st().macros[sel].fib ? ` · fibres ${st().macros[sel].fib} g` : ''}${st().macros[sel].at ? ` · relevé à ${new Date(st().macros[sel].at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : ''}` })] : []),
       ...(window.Steps ? [window.Steps.gauge(sel)] : []),
       el('div', { class: 'chips-top', style: 'margin:8px 0 0' },
         el('span', { class: `chip${copieux ? ' fire' : ''}`, html: `🍽️ <b>${copieux}</b> copieux` }),
@@ -321,7 +329,7 @@ window.Nutrition = (() => {
   }
 
   /* ---------- stats & conseils ---------- */
-  const lastDays = (n) => { const t = A().today(); return Array.from({ length: n }, (_, i) => dayOf(addDays(t, -i))).filter(d => d.meals.length); };
+  const lastDays = (n) => { const t = A().today(); return Array.from({ length: n }, (_, i) => dayOf(addDays(t, -i))).filter(hasFood); };
   function weekFacts() {
     const days = lastDays(7); if (!days.length) return null;
     const T = days.map(totals), c = cfg();

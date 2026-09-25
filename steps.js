@@ -42,13 +42,17 @@ window.Steps = (() => {
     lastRefresh = Date.now();
     try {
       const got = await S.load(true);
-      const remote = got.state?.steps;
-      if (!remote || typeof remote !== 'object') return false;
+      if (!got.state) return false;
+      const remote = got.state.steps && typeof got.state.steps === 'object' ? got.state.steps : {};
       const dirty = new Set(S.dirtySteps());
       const merged = { ...(st().steps || {}), ...Object.fromEntries(Object.entries(remote).filter(([d]) => !dirty.has(d))) };
-      if (JSON.stringify(merged) === JSON.stringify(st().steps || {})) return false;
-      A().absorb({ steps: merged });
-      return true;
+      // macros d'Assiette recopiées par le script toutes les 3 h : même relecture, la feuille fait foi
+      const macros = got.state?.macros && typeof got.state.macros === 'object' ? got.state.macros : st().macros || {};
+      const stepsChanged = JSON.stringify(merged) !== JSON.stringify(st().steps || {});
+      const macrosChanged = JSON.stringify(macros) !== JSON.stringify(st().macros || {});
+      if (!stepsChanged && !macrosChanged) return false;
+      A().absorb({ steps: merged, macros });
+      return stepsChanged;
     } catch (err) {
       console.warn('Relecture des pas impossible :', err);
       return false;

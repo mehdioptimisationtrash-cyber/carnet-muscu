@@ -18,4 +18,12 @@ const cases = [
 ];
 let ok = true;
 for (const [input, expected] of cases) { const got = fn(input); const pass = JSON.stringify(got) === JSON.stringify(expected); ok = ok && pass; console.log(pass ? 'ok  ' : 'FAIL', JSON.stringify(input), '→', JSON.stringify(got)); }
+// macros recopiées d'Assiette (onglet « jours » : date, kcal, protéines, glucides, lipides, fibres)
+const macrosFromRows = new Function(stubs + src + '; return macrosFromRows;')();
+const rows = [['2026-09-24', 2104.6, 151, 210.2, 70, 25], [new Date('2026-09-25T00:00:00'), 0, 0, 0, 0, 0], ['date abîmée', 100, 1, 1, 1, 1], ['2026-09-23', '1800', '', 'x', 60, null]];
+const toKey = (v) => (v && typeof v.getTime === 'function' ? '2026-09-25' : String(v));
+const expectedM = { '2026-09-24': { kcal: 2105, p: 151, c: 210, f: 70, fib: 25 }, '2026-09-23': { kcal: 1800, p: 0, c: 0, f: 60, fib: 0 } };
+const gotM = macrosFromRows(rows, toKey);
+const passM = JSON.stringify(gotM) === JSON.stringify(expectedM); ok = ok && passM;
+console.log(passM ? 'ok  ' : 'FAIL', 'macrosFromRows →', JSON.stringify(gotM));
 process.exit(ok ? 0 : 1);

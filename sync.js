@@ -79,7 +79,7 @@ window.Sync = (() => {
     const snapshot = pendingState;
     pendingState = null;
     // le journal nutrition voyage à part : uniquement les jours modifiés
-    const { nutrition = {}, steps = {}, ...rest } = snapshot;
+    const { nutrition = {}, steps = {}, macros, ...rest } = snapshot;   // macros : écrites par le script (Assiette), jamais renvoyées
     const sentDays = dirtyDays();
     const days = Object.fromEntries(sentDays.map((d) => [d, nutrition[d] || { date: d, meals: [], note: '' }]));
     const sentSteps = dirtySteps().filter((d) => steps[d]);

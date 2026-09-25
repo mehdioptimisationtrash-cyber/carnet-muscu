@@ -103,12 +103,28 @@ L'app copie l'URL et le jeton pour toi : Journal → jauge 🚶 → « Remplissa
 
 **À la demande** : dans la jauge 🚶, « 📲 Actualiser depuis Santé » lance le raccourci (`shortcuts://run-shortcut?name=Muscu%20Pas`, le nom doit être exact). Raccourcis s'ouvre, exécute, et tu reviens dans le carnet via « ◀ Muscu » en haut à gauche : l'app relit alors la feuille (3 essais sur 10 s, le temps que l'envoi arrive) et affiche le total.
 
-Automatisation : Raccourcis → *Automatisation* → + → *Heure de la journée* → 12:00, 18:00 et 23:50 → *Exécuter immédiatement* → « Muscu Pas ». Chaque envoi **remplace** le total du jour (dernier envoi gagne, y compris sur une saisie manuelle déjà synchronisée).
+**Automatique toutes les 3 h** : iOS ne sait pas répéter une automatisation toutes les X heures, il faut **une automatisation par horaire** (8 au total, ~1 min chacune) :
+Raccourcis → onglet *Automatisation* → **+** → *Heure de la journée* → heure (ex. **06:00**) → *Tous les jours* → **Exécuter immédiatement** (et décocher « Me notifier lors de l'exécution ») → Suivant → choisir « Muscu Pas » → OK.
+Horaires : **06:00, 09:00, 12:00, 15:00, 18:00, 21:00, 23:55** (+ 03:00 si tu veux, inutile la nuit). Le 23:55 fige le total de la journée. À la première exécution, iOS demande d'autoriser l'envoi vers script.google.com et l'accès à Santé : **Toujours autoriser**. Santé n'est lisible que téléphone **déverrouillé une fois depuis le démarrage** ; si l'iPhone est éteint à l'heure dite, l'envoi suivant rattrape (il remplace le total du jour).
+
+Chaque envoi **remplace** le total du jour (dernier envoi gagne, y compris sur une saisie manuelle déjà synchronisée).
 
 Contrat du script (`doPost`) : `{ token, iphone: 961, montre: 1520 }` (ou `{ token, steps: 8432 }`), `date` facultative → réponse `{ ok: true, v: 5, steps: { '2026-09-22': { n: 1520, src: 'sante', detail: 'montre (montre 1520 · iphone 961)' } } }`. Un appel sans `state` est accepté (il n'écrit que les pas). Test unitaire : `node tools/test_codegs.js apps-script/Code.gs`.
 
+## 7. Macros depuis l'app Assiette (automatique, toutes les 3 h)
+
+Assiette (autre PWA, suivi alimentaire) sauvegarde déjà chaque jour dans **sa** feuille Google, onglet `jours` (kcal, protéines, glucides, lipides, fibres). `Code.gs` **v6** du carnet recopie ces colonnes dans l'onglet `macros` de la feuille du carnet **toutes les 3 h via un déclencheur Google** : aucun téléphone ni raccourci nécessaire. Le carnet relit la feuille au retour au premier plan.
+
+Mise en place (une fois) :
+1. Ouvre la feuille Google d'**Assiette** et copie son adresse (`https://docs.google.com/spreadsheets/d/…/edit`).
+2. Dans la feuille du **carnet** : Extensions → Apps Script → colle `apps-script/Code.gs` (v6), puis remplace `const ASSIETTE_SHEET_URL = '';` par l'adresse copiée (garder les apostrophes) → 💾.
+3. En haut de l'éditeur, choisis la fonction **`installerAssiette`** → **Exécuter** → autorise l'accès (Google demande de voir tes feuilles et d'exécuter des déclencheurs : « Paramètres avancés → Accéder à … (non sécurisé) » est normal pour ton propre script). Le journal d'exécution affiche « Déclencheur installé … N jours recopiés ».
+4. Déployer → Gérer les déploiements → ✏️ → Version : **Nouvelle version** → Déployer (même URL).
+
+Dans le carnet : quand Assiette a des données pour un jour, **les jauges Calories / Protéines du Journal, le calendrier et les stats nutrition utilisent les chiffres d'Assiette** (ligne « 🍽️ Depuis Assiette · glucides … · lipides … · relevé à hh:mm ») ; l'alcool reste celui saisi dans le carnet. Les macros ne sont jamais renvoyées par l'app (le script seul les écrit). Pour changer la fréquence : `ASSIETTE_EVERY_HOURS`, puis relancer `installerAssiette` (il remplace l'ancien déclencheur).
+
 ## Données
 
-- Source de vérité : la feuille Google (`state` = cibles/XP/réglages, `historique` = une ligne par séance, `nutrition` = une ligne par jour, `pas` = une ligne par jour).
+- Source de vérité : la feuille Google (`state` = cibles/XP/réglages, `historique` = une ligne par séance, `nutrition` = une ligne par jour, `pas` = une ligne par jour, `macros` = copie d'Assiette).
 - `localStorage` = cache d'affichage et tampon hors-ligne ; s'il est vidé, tout revient depuis la feuille au prochain lancement.
 - Boutons **Exporter / Importer** : sauvegarde JSON manuelle (filet de sécurité).
