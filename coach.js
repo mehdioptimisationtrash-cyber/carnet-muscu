@@ -102,7 +102,74 @@
     return out;
   }
 
-  const api = { FEELS, TARGET_RIR, rirOf, e1rmFelt, repsAt, next, feelStats, advise };
+  /* ---------- temps de repos ----------
+   * Repères scientifiques :
+   *  - Schoenfeld et al. 2016 (J Strength Cond Res) : 3 min > 1 min pour l'hypertrophie et la force chez des pratiquants entraînés ;
+   *  - Grgic et al. 2018 (Sports Med, revue systématique) : ≥ 60 s suffit pour l'hypertrophie, plus long utile sur les polyarticulaires lourds ;
+   *  - Singer et al. 2024 (Front Sports Act Living, méta-analyse bayésienne) : léger avantage au-delà de 60 s, gain quasi nul au-delà de ~90 s.
+   * D'où : polyarticulaires 2 min (90 s → 3 min), isolation 75 s (60 s → 2 min) ; jamais sous 60 s.
+   * Auto-régulation : la série qu'on vient de finir règle le repos (facile −30 s, à fond +30 s), et chaque séance ajuste
+   * un décalage par exercice (`e.restAdj`) selon le repos réellement pris et la réussite de la série suivante.
+   */
+  const REST = {
+    poly: { base: 120, min: 90, max: 180, label: 'polyarticulaire' },
+    iso: { base: 75, min: 60, max: 120, label: 'isolation' },
+  };
+  const REST_FEEL = { 1: -30, 2: 0, 3: 30 };
+  const REST_ADJ = { step: 10, perSession: 20, min: -45, max: 60 };
+  const POLY_RE = /couche|developpe|militaire|press|squat|souleve|deadlift|row|rowing|tirage|pulldown|traction|pull.?up|dips|fente|lunge|hip thrust|pompe|leg press|presse|chest|bench/;
+  const norm = (x) => String(x || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const restKind = (e) => (e.mode === 'temps' ? 'iso' : e.restKind || (POLY_RE.test(norm(e.name)) ? 'poly' : 'iso'));
+  const clampRest = (e, sec) => { const k = REST[restKind(e)]; return Math.round(Math.min(k.max, Math.max(k.min, sec)) / 5) * 5; };
+  /** Repos proposé après une série de `e`, selon le ressenti de cette série (non noté = moyen). */
+  const restFor = (e, feel) => clampRest(e, REST[restKind(e)].base + (e.restAdj || 0) + (REST_FEEL[feel] || 0));
+  /** Durée estimée d'une série (exécution + mise en place), pour isoler le vrai repos entre deux validations. */
+  const setSeconds = (e, r) => (e.mode === 'temps' ? r.reps : r.reps * 3) + 15;
+  const MIN_REAL_REST = 20, MAX_REAL_REST = 600;   // en dehors : série validée en retard ou pause → ignorée
+
+  /**
+   * Analyse des repos d'un exercice sur une séance.
+   * @param sets résultats dans l'ordre { done, reps, at (ms à la validation), rest (s proposées après), feel }, cibles `targets`
+   * @returns { pairs, prop, real, ratio, delta } — delta = correction proposée pour e.restAdj (s)
+   */
+  function analyzeRest(e, sets, targets) {
+    const pairs = [];
+    for (let i = 0; i + 1 < (sets || []).length; i++) {
+      const a = sets[i], b = sets[i + 1];
+      if (!a?.done || !b?.done || !a.at || !b.at || !a.rest) continue;
+      const real = Math.round((b.at - a.at) / 1000 - setSeconds(e, b));
+      if (real < MIN_REAL_REST || real > MAX_REAL_REST) continue;
+      const hit = !targets?.[i + 1] || b.reps >= targets[i + 1].reps;
+      pairs.push({ prop: a.rest, real, feel: b.feel, ok: hit && b.feel !== 3 });
+    }
+    if (!pairs.length) return null;
+    const avg = (k) => Math.round(pairs.reduce((x, p) => x + p[k], 0) / pairs.length);
+    let delta = 0;
+    for (const p of pairs) {
+      if (!p.ok && p.real <= p.prop * 1.1) delta += REST_ADJ.step;                 // repos proposé respecté, et série suivante à fond/ratée : trop court
+      else if (p.ok && p.feel === 1 && p.real <= p.prop * 1.1) delta -= REST_ADJ.step; // série suivante facile avec le repos proposé (ou moins) : on peut raccourcir
+      else if (p.ok && p.real < p.prop * 0.85) delta -= REST_ADJ.step / 2;          // tu repars avant la fin et ça passe : tu récupères vite
+    }
+    delta = Math.max(-REST_ADJ.perSession, Math.min(REST_ADJ.perSession, delta));
+    return { pairs, prop: avg('prop'), real: avg('real'), ratio: Math.round(avg('real') / avg('prop') * 100) / 100, delta };
+  }
+  const nextRestAdj = (e, delta) => Math.max(REST_ADJ.min, Math.min(REST_ADJ.max, (e.restAdj || 0) + delta));
+
+  const fmtSec = (s) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  /** Conseil de repos à partir de l'analyse d'une séance (ou null). */
+  function restAdvice(e, an) {
+    if (!an || an.pairs.length < 2) return null;
+    const k = REST[restKind(e)];
+    const failsAfter = an.pairs.filter((p) => !p.ok).length;
+    const head = `${e.name} : repos réel ${fmtSec(an.real)} pour ${fmtSec(an.prop)} proposé`;
+    if (an.ratio >= 1.3 && !failsAfter) return { level: 'warn', title: head, text: `Tu dépasses de ${Math.round((an.ratio - 1) * 100)} % et tes séries suivantes passent : au-delà de ~${fmtSec(k.base)} sur un exercice d’${k.label}, le gain musculaire est quasi nul (méta-analyse Singer 2024). Repars au bip : même stimulus, séance plus courte.` };
+    if (an.ratio >= 1.3) return { level: '', title: head, text: 'Tu prends plus que proposé et les séries suivantes restent dures : le carnet allonge le repos proposé sur cet exercice. Garde ce temps-là, il te sert.' };
+    if (an.ratio <= 0.8 && failsAfter) return { level: 'warn', title: head, text: `Tu repars trop tôt : les séries qui suivent un repos écourté coincent. Respecte au moins ${fmtSec(Math.max(k.min, an.prop))} — un repos trop court fait perdre des reps, donc du volume utile.` };
+    if (an.ratio <= 0.8) return { level: 'good', title: head, text: 'Tu récupères vite sur cet exercice : le carnet raccourcit le repos proposé.' };
+    return { level: 'good', title: head, text: 'Repos bien calé : tu suis la proposition et les séries suivantes passent.' };
+  }
+
+  const api = { FEELS, TARGET_RIR, rirOf, e1rmFelt, repsAt, next, feelStats, advise, REST, restKind, restFor, analyzeRest, nextRestAdj, restAdvice, fmtSec };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Coach = api;
 })(typeof window !== 'undefined' ? window : globalThis);

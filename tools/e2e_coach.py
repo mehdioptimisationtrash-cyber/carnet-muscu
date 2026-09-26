@@ -26,14 +26,19 @@ with sync_playwright() as p:
     ctx.route("**/config.js", lambda r, q: r.fulfill(content_type="application/javascript", body=f"window.CARNET_CONFIG={{SHEETS_URL:'{FAKE_URL}',TOKEN:'t'}};"))
     ctx.route("https://script.google.com/**", fake)
     pg = ctx.new_page(); pg.on("pageerror", lambda e: errors.append(str(e)))
+    pg.clock.install()
     pg.goto(BASE); pg.wait_for_function("document.querySelector('#status').dataset.state === 'ok'", timeout=15000)
     check("40 kg × 8 · 8 · 8" in pg.text_content("#x-dc .last"), "dernière fois affiche la charge")
     pg.click("#btnStart"); pg.click("text=/^Démarrer$/")
+    rests = []
     for i, feel in enumerate([1, 2, 3]):
+        if i: pg.clock.run_for(200_000)   # 200 s entre deux validations = ~160 s de repos réel pour 120 s proposées
         pg.click(f"#s-dc-{i}"); pg.click("text=/Réussie/")
         check(pg.locator(".feel-ask").count() == 1, f"série {i+1} : pop-up de ressenti")
         pg.click(f"#feel-{feel}")
         check(pg.locator(".feel-ask").count() == 0, "pop-up fermée après le choix")
+        pg.clock.run_for(1000); rests.append(pg.text_content("#restTxt"))
+    check(rests[0] in ("1:29", "1:30") and rests[1] in ("1:59", "2:00") and rests[2] in ("2:29", "2:30"), f"repos adapté au ressenti (polyarticulaire) : {rests}")
     check(pg.locator("#x-dc .set .feel").count() == 3, "ressenti affiché sur les pastilles")
     pg.click("#btnFinish"); pg.click("text=/Non, terminer/")
     pg.wait_for_selector(".summary")
@@ -42,6 +47,9 @@ with sync_playwright() as p:
     st = pg.evaluate("JSON.parse(localStorage.getItem('carnet-muscu-v2'))")
     reps = [s["reps"] for s in st["exos"][0]["sets"]]
     check(reps == [11, 10, 9], f"cibles adaptées facile/moyen/dur = {reps}")
+    check("Repos : 2:" in summ and "proposé" in summ, "bilan : repos réel vs proposé")
+    check(st["exos"][0].get("restAdj") is not None, f"repos appris pour l'exercice (restAdj = {st['exos'][0].get('restAdj')})")
+    check(st["history"][-1]["exos"]["dc"]["rest"]["real"] > 150, "repos réel enregistré dans l'historique")
     check(all("why" not in s for s in st["exos"][0]["sets"]), "pas de champ technique enregistré")
     check([r.get("feel") for r in st["history"][-1]["exos"]["dc"]["sets"]] == [1, 2, 3], "ressentis gardés dans l'historique")
     pg.click(".summary .btn.primary.big")

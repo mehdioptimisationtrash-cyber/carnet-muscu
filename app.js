@@ -59,7 +59,7 @@
   let tab = 'seance';
   let restTimer = null, restEnd = 0, clockTimer = null;
 
-  const defaultSettings = () => ({ rest: 90, weeklyGoal: 3, autoDeload: true, apple: false, cardio: { avant: 'none', apres: 'none' }, stepsGoal: 10000 });
+  const defaultSettings = () => ({ rest: 90, restAuto: true, weeklyGoal: 3, autoDeload: true, apple: false, cardio: { avant: 'none', apres: 'none' }, stepsGoal: 10000 });
   const mkExo = (name, sets, opts = {}) => ({ id: uid(), name, mode: 'reps', step: 2, repMin: 8, repMax: 15, sets, last: null, best: null, stalled: 0, ...opts });
   const seed = () => ({ v: 2, rev: 0, xp: 0, settings: defaultSettings(), exos: [], session: null, history: [], weights: [], nutrition: {}, steps: {}, macros: {} });
   const withCat = (e) => Cats.CATS[e.cat] ? e : { ...e, cat: Cats.catOf(e) };
@@ -405,8 +405,11 @@
       : `Cible pour la prochaine séance · palier à ${fmtReps(e, e.repMax)}${(t.fails || 0) ? ` · ratée ${t.fails}× de suite` : ''}`;
     openSheet(el('h3', { text: `${e.name} — série ${i + 1}` }), el('div', { class: 'sub', text: sub }), fields, resetHint, actions);
   }
+  // repos après une série : proposé par le coach (type d'exercice, ressenti, historique) ou fixe si choisi dans ⚙︎
+  const restAfter = (e, feel) => state.settings.restAuto === false ? state.settings.rest : Coach.restFor(e, feel);
   function logSet(exoId, i, r, deloadRest = false) {
     const s = state.session;
+    if (r.done) r = { ...r, at: Date.now(), rest: restAfter(state.exos.find(x => x.id === exoId)) };
     const results = { ...s.results, [exoId]: s.results[exoId].map((x, k) => k === i ? r : x) };
     let targets = s.targets || {};
     if (deloadRest) {
@@ -417,15 +420,17 @@
     commit({ ...state, session: { ...s, results, targets } });
     closeSheet();
     document.getElementById(`s-${exoId}-${i}`)?.classList.add('pop');
-    if (r.done) { startRest(); askFeel(exoId, i); }
+    if (r.done) { startRest(r.rest); askFeel(exoId, i); }
   }
   // juste après une série validée : 1 tap pour dire comment c'était (reps en réserve) — le coach s'en sert pour la cible suivante
   function askFeel(exoId, i) {
     const e = state.exos.find(x => x.id === exoId);
     const pick = (k) => {
       const s = state.session; if (!s?.results[exoId]?.[i]) { closeSheet(); return; }
-      commit({ ...state, session: { ...s, results: { ...s.results, [exoId]: s.results[exoId].map((x, k2) => k2 === i ? { ...x, feel: Number(k) } : x) } } });
+      const rest = restAfter(e, Number(k));
+      commit({ ...state, session: { ...s, results: { ...s.results, [exoId]: s.results[exoId].map((x, k2) => k2 === i ? { ...x, feel: Number(k), rest } : x) } } });
       closeSheet();
+      adjustRest(rest);   // facile → repos plus court, à fond → plus long
     };
     openSheet(el('div', { class: 'feel-ask' },
       el('h3', { text: `${e.name} — série ${i + 1} : c’était comment ?` }),
@@ -440,6 +445,7 @@
     const selMax = selectEl('mMax', isTemps(e) ? [45, 60, 90, 120, 180] : [10, 12, 15, 20], e.repMax, (o) => isTemps(e) ? `${o} s` : `${o} reps`);
     const selStep = selectEl('mStep', [0.5, 1, 2, 2.5, 3, 4, 5, 7, 10], e.step, (o) => `+${o} kg`);
     const selMode = selectEl('mMode', ['reps', 'temps'], e.mode, (o) => o === 'reps' ? 'Répétitions' : 'Temps (secondes)');
+    const selKind = selectEl('mKind', ['poly', 'iso'], Coach.restKind(e), (o) => o === 'poly' ? `Polyarticulaire (repos ~${Coach.fmtSec(Coach.REST.poly.base)})` : `Isolation (repos ~${Coach.fmtSec(Coach.REST.iso.base)})`);
     const selCat = selectEl('mCat', Object.keys(Cats.CATS), Cats.catOf(e), (o) => o === 'devant' ? 'Devant (pecs, biceps, quadri, abdos…)' : 'Derrière (dos, ischios, fessiers, triceps…)');
     const inStack = el('input', { type: 'text', id: 'mStack', inputmode: 'decimal', placeholder: 'ex. 9, 16, 23, 30, 36, 43, 50', value: hasStack(e) ? e.stack.join(', ') : '', 'aria-label': 'Plaques de la machine' });
     const stackHint = el('p', { class: 'hint' });
@@ -461,6 +467,7 @@
         el('div', { class: 'field' }, el('label', { for: 'mStep', text: 'Cran (haltères / barre)' }), selStep),
         el('div', { class: 'field' }, el('label', { for: 'mMode', text: 'Type' }), selMode),
         el('div', { class: 'field wide' }, el('label', { for: 'mCat', text: 'Séance' }), selCat),
+        el('div', { class: 'field wide' }, el('label', { for: 'mKind', text: `Mouvement · repos proposé maintenant ${Coach.fmtSec(Coach.restFor(e))}` }), selKind),
         el('div', { class: 'field wide' }, el('label', { for: 'mStack', text: 'Plaques de la machine (kg, séparées par des virgules)' }), inStack, stackHint)),
       el('div', { class: 'menu' },
         el('button', {
@@ -468,7 +475,7 @@
             const stackVals = parseStack(inStack.value);
             const stack = stackVals.length > 1 ? stackVals : undefined;
             const repMin = Number(selMin.value), repMax = Math.max(repMin + 1, Number(selMax.value)), step = Number(selStep.value), mode = selMode.value;
-            const patch = { repMin, repMax, step, mode, stack, cat: selCat.value };
+            const patch = { repMin, repMax, step, mode, stack, cat: selCat.value, restKind: selKind.value };
             // la pile vient d'être saisie/modifiée : on recale tout de suite les charges affichées sur les vraies plaques
             const snap = (t) => stack && typeof t.charge === 'number' ? { ...t, charge: snapToStack({ stack }, t.charge) } : t;
             let next = { ...state, exos: state.exos.map(x => x.id === exoId ? { ...x, ...patch, sets: x.sets.map(snap) } : x) };
@@ -488,7 +495,7 @@
   }
   function openSettings() {
     const st = state.settings;
-    const selRest = selectEl('gRest', [45, 60, 90, 120, 150, 180], st.rest, (o) => `${o} s`);
+    const selRest = selectEl('gRest', ['auto', 45, 60, 90, 120, 150, 180], st.restAuto === false ? st.rest : 'auto', (o) => o === 'auto' ? 'Automatique (coach)' : `Fixe : ${o} s`);
     const selGoal = selectEl('gGoal', [1, 2, 3, 4, 5, 6], st.weeklyGoal, (o) => plural(o, 'séance'));
     const selAuto = selectEl('gAuto', ['oui', 'non'], st.autoDeload ? 'oui' : 'non', (o) => o === 'oui' ? 'Oui — après 2 échecs, −1 cran' : 'Non — je décide moi-même');
     const selApple = selectEl('gApple', ['non', 'oui'], st.apple ? 'oui' : 'non', (o) => o === 'oui' ? 'Oui — me rappeler quoi lancer sur la montre' : 'Non');
@@ -505,7 +512,7 @@
           el('button', { class: 'btn ghost', type: 'button', style: 'margin-top:6px', text: 'Remplissage automatique depuis Santé', onclick: () => window.Steps?.openHelp() })),
         el('div', { class: 'field wide' }, el('label', { for: 'gApple', text: '⌚ Rappels Apple Watch' }), selApple,
           el('button', { class: 'btn ghost', type: 'button', style: 'margin-top:6px', text: 'Comment ça marche ?', onclick: openAppleHelp }))),
-      el('div', { class: 'actions' }, el('button', { class: 'btn primary big', type: 'button', text: 'Enregistrer', onclick: () => { commit({ ...state, settings: { ...st, rest: Number(selRest.value), weeklyGoal: Number(selGoal.value), autoDeload: selAuto.value === 'oui', apple: selApple.value === 'oui', stepsGoal: Number(selSteps.value) || 10000 } }); closeSheet(); } })));
+      el('div', { class: 'actions' }, el('button', { class: 'btn primary big', type: 'button', text: 'Enregistrer', onclick: () => { commit({ ...state, settings: { ...st, rest: selRest.value === 'auto' ? st.rest : Number(selRest.value), restAuto: selRest.value === 'auto', weeklyGoal: Number(selGoal.value), autoDeload: selAuto.value === 'oui', apple: selApple.value === 'oui', stepsGoal: Number(selSteps.value) || 10000 } }); closeSheet(); } })));
   }
   function openAppleHelp() {
     const rows = [
@@ -607,18 +614,20 @@
         } }),
         el('button', { class: 'btn good big', type: 'button', text: 'Non, terminer la séance', onclick: tryFinish })));
   });
-  function startRest() {
+  let restStart = 0, restTotal = 0;
+  function startRest(total = state.settings.rest) {
     stopRest();
-    const total = state.settings.rest;
-    restEnd = Date.now() + total * 1000;
+    restStart = Date.now(); restTotal = total;
+    restEnd = restStart + total * 1000;
     $('#rest').hidden = false;
     restTimer = setInterval(() => {
       const left = Math.max(0, Math.ceil((restEnd - Date.now()) / 1000));
       $('#restTxt').textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
-      $('#rest').querySelector('.ring').style.setProperty('--p', `${100 - Math.round((left / total) * 100)}%`);
+      $('#rest').querySelector('.ring').style.setProperty('--p', `${100 - Math.round((left / restTotal) * 100)}%`);
       if (left <= 0) { stopRest(); $('#restTxt').textContent = 'Go !'; $('#rest').hidden = false; try { navigator.vibrate?.([200, 100, 200]); } catch {} setTimeout(() => { if (!restTimer) $('#rest').hidden = true; }, 4000); }
     }, 250);
   }
+  function adjustRest(total) { if (!restTimer) return; restTotal = total; restEnd = restStart + total * 1000; }
   function stopRest() { clearInterval(restTimer); restTimer = null; $('#rest').hidden = true; }
   $('#rest').addEventListener('click', stopRest);
 
@@ -629,7 +638,7 @@
     const prevEntry = state.history.at(-1);
     const continuation = !!(prevEntry && prevEntry.date === date);
     let xp = continuation ? 0 : XP.session, setsDone = 0, setsTotal = 0, fails = 0, volume = 0, chalTotal = 0, chalWon = 0;
-    const prs = [], paliers = [], changes = [], failed = [], exosLog = {};
+    const prs = [], paliers = [], changes = [], failed = [], exosLog = {}, restLog = [];
     const exos = state.exos.map(e => {
       const raw = s.results[e.id] || [];
       if (!raw.some(r => r.done !== null)) return e;   // exercice non touché : réservé à une autre séance
@@ -661,10 +670,13 @@
       if (before !== after) changes.push({ name: e.name, before, after, up: next.some(n => n.up), deload: next.some(n => n.deload), why: whys.join(' · ') });
       else if (res.some(r => r.done && r.feel === 3)) changes.push({ name: e.name, before, after, same: true, why: whys.join(' · ') });
       if (failedIdx.length) failed.push({ id: e.id, name: e.name, idx: failedIdx, res, T, retry: next.map(({ up, deload, why, ...t }) => t), auto: next.some(n => n.deload), down: downLabel(e), prev: (c) => prevCharge(e, c), temps: isTemps(e) });
-      exosLog[e.id] = { name: e.name, sets: res };
+      const rest = Coach.analyzeRest(e, res, T);
+      if (rest) restLog.push({ e, an: rest });
+      exosLog[e.id] = { name: e.name, sets: res, ...(rest ? { rest: { prop: rest.prop, real: rest.real } } : {}) };
       const done = res.some(r => r.done);
-      if (light) return { ...e };
-      return { ...e, sets: next.map(({ up, deload, why, ...t }) => t), last: res, best, stalled: done ? (progressed ? 0 : e.stalled + 1) : e.stalled };
+      const restAdj = rest && state.settings.restAuto !== false ? Coach.nextRestAdj(e, rest.delta) : e.restAdj;
+      if (light) return { ...e, ...(restAdj !== undefined ? { restAdj } : {}) };
+      return { ...e, ...(restAdj !== undefined ? { restAdj } : {}), sets: next.map(({ up, deload, why, ...t }) => t), last: res, best, stalled: done ? (progressed ? 0 : e.stalled + 1) : e.stalled };
     });
     if (light) xp = Math.round(xp * XP.light);
     const cardio = ['avant', 'apres'].map(pos => { const c = s.cardio?.[pos]; const sec = cardioSec(c); return sec > 0 ? { pos, type: c.type, sec } : null; }).filter(Boolean);
@@ -683,7 +695,7 @@
     const lvlBefore = level(state.xp);
     const nextState = { ...state, exos, session: null, xp: state.xp + xp, history };
     commit(nextState);
-    showSummary(entry, changes, failed, lvlBefore, level(nextState.xp), streak, continuation, cardio);
+    showSummary(entry, changes, failed, lvlBefore, level(nextState.xp), streak, continuation, cardio, restLog);
     if (!light) confetti();
     runShortcut('fin');   // termine l'exercice sur la montre (si le pont Apple est activé)
   }
@@ -699,7 +711,7 @@
       exos: { ...a.exos, ...b.exos },
     };
   }
-  function showSummary(h, changes, failed, l0, l1, streak, continuation, cardioNow = []) {
+  function showSummary(h, changes, failed, l0, l1, streak, continuation, cardioNow = [], restLog = []) {
     const list = el('ul', { class: 'list' });
     if (l1 > l0) list.append(el('li', { class: 'gold', html: `🎉 <b>Niveau ${l1} — ${titleFor(l1)}</b><small>Tu passes un cap.</small>` }));
     if (cardioNow.length) list.append(el('li', { class: 'good', html: `🏃 <b>Cardio : ${Math.round(cardioNow.reduce((a, c) => a + c.sec, 0) / 60)} min</b><small>${cardioNow.map(c => `${CARDIO[c.type] || c.type} ${Math.round(c.sec / 60)} min (${c.pos === 'avant' ? 'avant' : 'après'})`).join(' · ')}</small>` }));
@@ -714,6 +726,12 @@
     }
     if (h.light) list.append(el('li', { text: 'Séance légère : cibles inchangées, série de semaines préservée. Bien joué d’être venu.' }));
     else if (!changes.length && !failed.length) list.append(el('li', { text: 'Aucune cible n’a bougé — la prochaine fois, vise +1 rep sur une série.' }));
+    if (restLog.length) {
+      const pairs = restLog.flatMap(x => x.an.pairs), avg = (k) => Math.round(pairs.reduce((a, p) => a + p[k], 0) / pairs.length);
+      const extra = pairs.reduce((a, p) => a + Math.max(0, p.real - p.prop), 0);
+      list.append(el('li', { class: avg('real') > avg('prop') * 1.25 ? 'warn' : 'good', html: `⏱️ <b>Repos : ${Coach.fmtSec(avg('real'))} en moyenne pour ${Coach.fmtSec(avg('prop'))} proposé</b><small>${pairs.length} repos mesurés entre séries d’un même exercice${extra >= 120 ? ` · ${Math.round(extra / 60)} min de plus que proposé sur la séance` : ''}</small>` }));
+      for (const x of restLog) { const t = Coach.restAdvice(x.e, x.an); if (t && t.level !== 'good') list.append(el('li', { class: t.level === 'warn' ? 'warn' : 'good', html: `⏱️ <b>${t.title}</b><small>${t.text}</small>` })); }
+    }
     const coachTips = changes.flatMap(c => Coach.advise(state.exos.find(x => x.name === c.name) || { name: c.name }, recentSets(state.exos.find(x => x.name === c.name))));
     for (const t of coachTips) list.append(el('li', { class: t.level === 'warn' ? 'warn' : 'good', html: `🧠 <b>${t.title}</b><small>${t.text}</small>` }));
     // défis ratés : la décision t'appartient
@@ -846,6 +864,8 @@
     if (stalled.length >= 3) out.append(ax('warn', 'Semaine de décharge conseillée', `${stalled.length} exercices stagnent (${stalled.map(e => e.name).join(', ')}). Fais une semaine de séances légères (−10 %) : la fatigue accumulée retombe, les défis repassent ensuite.`));
     for (const e of state.exos) {
       for (const t of Coach.advise(e, recentSets(e))) out.append(ax(t.level, `🧠 ${t.title}`, t.text));
+      const lastSets = recentSets(e).at(-1), rt = lastSets && Coach.restAdvice(e, Coach.analyzeRest(e, lastSets));
+      if (rt) out.append(ax(rt.level, `⏱️ ${rt.title}`, rt.text));
       if (e.stalled >= 2 && stalled.length < 3) out.append(ax('warn', `${e.name} stagne depuis ${e.stalled} séances`, `Essaie ${downLabel(e)} de moins avec ${e.repMax} reps propres, puis remonte. Ou place-le plus tôt dans la séance.`));
       const p = exoProgress(e);
       const c0 = e.sets.find(s => typeof s.charge === 'number')?.charge;

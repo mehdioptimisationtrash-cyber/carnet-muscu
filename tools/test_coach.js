@@ -41,3 +41,28 @@ assert.match(C.advise(e, [S(3, 3, 3), S(3, 3, 3, 2)])[0].title, /2 séances/);
 assert.strictEqual(C.advise(e, [S(2, 2, 2)])[0].level, 'good');
 assert.deepStrictEqual(C.advise(e, [[R(40, 10)]]), []);
 console.log('coach OK');
+
+// ---------- repos ----------
+const poly = { name: 'Développé couché', mode: 'reps' }, iso = { name: 'Poulie triceps', mode: 'reps' };
+assert.strictEqual(C.restKind(poly), 'poly'); assert.strictEqual(C.restKind(iso), 'iso'); assert.strictEqual(C.restKind({ name: 'Gainage', mode: 'temps' }), 'iso');
+assert.deepStrictEqual([C.restFor(poly, 1), C.restFor(poly, 2), C.restFor(poly, 3), C.restFor(poly)], [90, 120, 150, 120]);
+assert.deepStrictEqual([C.restFor(iso, 1), C.restFor(iso, 3)], [60, 105]);   // jamais sous 60 s
+assert.strictEqual(C.restFor({ ...iso, restAdj: -45 }, 1), 60);
+assert.strictEqual(C.restFor({ ...poly, restAdj: 60 }, 3), 180);            // plafond 3 min
+// une série de 8 reps dure ~39 s : validations espacées de 39 + repos réel
+const at = (secs) => secs.reduce((a, s) => [...a, a[a.length - 1] + s * 1000], [0]).map((x) => x + 1e12);
+const mk = (restReal, feels, prop = 120, reps = 8) => at(restReal.map((r) => r + reps * 3 + 15)).map((t, i) => ({ done: true, reps, at: t, rest: prop, feel: feels[i] }));
+// repos respecté mais série suivante à fond → on allonge
+const long = C.analyzeRest(poly, mk([120, 120], [2, 3, 3]));
+assert.strictEqual(long.real, 120); assert.strictEqual(long.delta, 20);
+// repos très dépassé, séries suivantes faciles → conseil de repartir au bip, pas d'allongement
+const over = C.analyzeRest(poly, mk([200, 210], [2, 1, 2]));
+assert.ok(over.ratio > 1.6); assert.ok(over.delta <= 0);
+assert.match(C.restAdvice(poly, over).text, /Repars au bip/);
+// repos écourté et ça passe → on raccourcit
+const fast = C.analyzeRest(poly, mk([80, 85], [2, 2, 1]));
+assert.ok(fast.delta < 0); assert.strictEqual(C.restAdvice(poly, fast).level, 'good');
+// pauses anormales ignorées
+assert.strictEqual(C.analyzeRest(poly, mk([900], [2, 2])), null);
+assert.strictEqual(C.nextRestAdj({ restAdj: 55 }, 20), 60);
+console.log('repos OK');
