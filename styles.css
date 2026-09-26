@@ -86,6 +86,17 @@ h1 { font-size: 30px; font-weight: 700; letter-spacing: -.01em; margin: 0; line-
 .exo.current { background: var(--bg-soft); margin-inline: -12px; padding-inline: 12px; border-radius: 8px; border-bottom-color: transparent; }
 .exo-head { display: flex; align-items: baseline; gap: 8px; }
 /* séances alternées : catégorie du jour (« à faire ») vs l'autre (« en attente ») */
+.set .feel { position: absolute; top: -7px; left: -6px; font-size: 14px; line-height: 1; }
+.feel-ask h3 { margin-bottom: 12px; }
+.feel-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.feel-btn { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 14px 6px; border-radius: 12px; border: 1.5px solid var(--line-strong); background: var(--bg-card); cursor: pointer; transition: transform var(--dur, .12s) ease; }
+.feel-btn .fe { font-size: 34px; line-height: 1.1; }
+.feel-btn small { color: var(--muted); font-size: 11px; text-align: center; }
+.feel-btn:active { transform: scale(.96); }
+.feel-btn.f1:hover { border-color: var(--good); background: var(--good-soft); }
+.feel-btn.f2:hover { border-color: var(--accent); background: var(--accent-soft); }
+.feel-btn.f3:hover { border-color: var(--bad); background: var(--bad-soft); }
+.list li small.why { color: var(--accent); }
 .assiette-line { font-size: 12.5px; color: var(--muted); margin: 2px 0 6px; }
 .cat-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; margin: 18px 0 2px; padding: 8px 12px; border-radius: 8px; }
 .cat-head b { font-size: 13px; letter-spacing: .02em; }

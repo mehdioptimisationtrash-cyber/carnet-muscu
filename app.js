@@ -168,19 +168,16 @@
   const allChallenges = () => dayExos().map(e => ({ e, cs: challengesOf(e) })).filter(x => x.cs.length);
   const potentialXp = () => XP.session + dayExos().reduce((a, e) => a + e.sets.length * (XP.set + XP.hit), 0) + allChallenges().reduce((a, x) => a + x.cs.length * XP.challenge, 0);
 
-  function nextTarget(e, target, r) {
-    const base = { charge: target.charge, reps: target.reps, fails: target.fails || 0 };
-    if (!r || r.done !== true) return base;                                   // pas faite : on retente
-    if (isTemps(e)) return r.reps >= target.reps ? { charge: 'PDC', reps: Math.min(r.reps + 5, e.repMax), fails: 0 } : { ...base, fails: base.fails + 1 };
-    if (r.reps < target.reps) {                                                // ratée
-      const fails = base.fails + 1;
-      const down = prevCharge(e, r.charge);
-      if (state.settings.autoDeload && fails >= 2 && down !== null) return { charge: down, reps: target.reps, fails: 0, deload: true };
-      return { charge: r.charge, reps: target.reps, fails };
-    }
-    const up = nextCharge(e, r.charge);
-    if (r.reps >= e.repMax && up !== null) return { charge: up, reps: e.repMin, fails: 0, up: true }; // palier : plaque suivante
-    return { charge: r.charge, reps: Math.min(r.reps + 1, e.repMax), fails: 0 };
+  // progression auto-régulée par le ressenti de chaque série (😄 / 🙂 / 😣) : voir coach.js
+  const nextTarget = (e, target, r) => Coach.next(e, target, r, { nextCharge: (c) => nextCharge(e, c), prevCharge: (c) => prevCharge(e, c), autoDeload: state.settings.autoDeload });
+  const feelEmoji = (r) => Coach.FEELS[r?.feel]?.e || '';
+  // « dernière fois » lisible : charge × reps, groupé quand la charge ne change pas (40 kg × 8 · 8 · 8 😣)
+  function fmtLast(e, sets) {
+    const done = (sets || []).map(r => r.done ? `${fmtReps(e, r.reps)}${feelEmoji(r)}` : '–');
+    if (isTemps(e)) return done.join(' · ');
+    const charges = [...new Set((sets || []).filter(r => r.done).map(r => fmtKg(r.charge)))];
+    if (charges.length <= 1) return `${charges[0] ? charges[0] + ' × ' : ''}${done.join(' · ')}`;
+    return (sets || []).map(r => r.done ? `${fmtKg(r.charge)}×${r.reps}${feelEmoji(r)}` : '–').join(' · ');
   }
   function tipFor(e) {
     const cs = challengesOf(e);
@@ -191,7 +188,7 @@
     if (hasStack(e) && e.sets.some(s => typeof s.charge === 'number' && nextCharge(e, s.charge) === null && s.reps >= e.repMax)) return 'Haut de la pile : monte le palier à 20 reps ou ajoute une série';
     if (e.stalled >= 2) return `Stagne depuis ${e.stalled} séances — essaie ${downLabel(e)} de moins et remonte`;
     if (!e.last) return 'Première fois : fixe ta base, le défi arrive la fois suivante';
-    return 'Réussis tout → +1 rep sur chaque série la prochaine fois';
+    return 'Note chaque série 😄 🙂 😣 : la prochaine cible s’adapte à ton effort';
   }
 
   /* ---------- rendu ---------- */
@@ -317,12 +314,13 @@
       const isChal = chalIdx.has(i) && (!inS || !r || r.done === null);
       sets.append(el('button', { class: cls + (isChal ? ' chal' : ''), type: 'button', id: `s-${e.id}-${i}`, onclick: () => openSet(e.id, i) },
         ...(isChal ? [el('span', { class: 'zap', text: '⚡' })] : []),
+        ...(inS && r?.done && feelEmoji(r) ? [el('span', { class: 'feel', text: feelEmoji(r) })] : []),
         el('span', { class: 'reps', html: `${shown.reps}<small>${isTemps(e) ? ' s' : (inS && r?.done ? `/${t.reps}` : '')}</small>` }),
         el('span', { class: 'ch', text: label || (isTemps(e) ? `série ${i + 1}` : fmtKg(shown.charge)) })));
     });
     sets.append(el('button', { class: 'set add-set', type: 'button', id: `add-${e.id}`, 'aria-label': `Ajouter une série à ${e.name}`, onclick: () => addSet(e.id) }, el('span', { class: 'reps', text: '+' }), el('span', { class: 'ch', text: 'série' })));
     const foot = el('div', { class: 'exo-foot' });
-    if (e.last) foot.append(el('span', { class: 'last', text: `dernière fois : ${e.last.map(r => r.done ? fmtReps(e, r.reps) : '–').join(' · ')}` }));
+    if (e.last) foot.append(el('span', { class: 'last', text: `dernière fois : ${fmtLast(e, e.last)}` }));
     if (!isTemps(e)) foot.append(el('span', { class: 'pbar', title: 'Progression vers le prochain palier' }, el('i', { style: `width:${Math.round(exoProgress(e) * 100)}%` })));
     if (e.best?.e1rm) foot.append(el('span', { text: `record ≈ ${e.best.e1rm} kg (1RM)` }));
     const tip = tipFor(e); if (tip) foot.append(el('span', { class: `tip${chalIdx.size ? ' strong' : ''}`, text: tip }));
@@ -403,7 +401,7 @@
       actions.append(el('button', { class: 'btn primary big', type: 'button', text: `Enregistrer la cible de la série ${i + 1}`, onclick: () => { commit(updExo(exoId, x => ({ ...x, sets: x.sets.map((s, k) => k === i ? { ...read(), fails: 0 } : s) }))); closeSheet(); } }));
     }
     const sub = inS
-      ? `Cible : ${fmtReps(e, t.reps)}${isTemps(e) ? '' : ' à ' + fmtKg(t.charge)}${chal ? ` · ⚡ défi (${chal.kind === 'charge' ? '+' + chal.delta + ' kg' : '+' + chal.delta + (isTemps(e) ? ' s' : ' rep')})` : ''}${e.last?.[i]?.done ? ' · dernière fois ' + fmtReps(e, e.last[i].reps) + (isTemps(e) ? '' : ' à ' + fmtKg(e.last[i].charge)) : ''}`
+      ? `Cible : ${fmtReps(e, t.reps)}${isTemps(e) ? '' : ' à ' + fmtKg(t.charge)}${chal ? ` · ⚡ défi (${chal.kind === 'charge' ? '+' + chal.delta + ' kg' : '+' + chal.delta + (isTemps(e) ? ' s' : ' rep')})` : ''}${e.last?.[i]?.done ? ' · dernière fois ' + fmtReps(e, e.last[i].reps) + (isTemps(e) ? '' : ' à ' + fmtKg(e.last[i].charge)) + (feelEmoji(e.last[i]) ? ' ' + feelEmoji(e.last[i]) : '') : ''}`
       : `Cible pour la prochaine séance · palier à ${fmtReps(e, e.repMax)}${(t.fails || 0) ? ` · ratée ${t.fails}× de suite` : ''}`;
     openSheet(el('h3', { text: `${e.name} — série ${i + 1}` }), el('div', { class: 'sub', text: sub }), fields, resetHint, actions);
   }
@@ -419,7 +417,21 @@
     commit({ ...state, session: { ...s, results, targets } });
     closeSheet();
     document.getElementById(`s-${exoId}-${i}`)?.classList.add('pop');
-    if (r.done) startRest();
+    if (r.done) { startRest(); askFeel(exoId, i); }
+  }
+  // juste après une série validée : 1 tap pour dire comment c'était (reps en réserve) — le coach s'en sert pour la cible suivante
+  function askFeel(exoId, i) {
+    const e = state.exos.find(x => x.id === exoId);
+    const pick = (k) => {
+      const s = state.session; if (!s?.results[exoId]?.[i]) { closeSheet(); return; }
+      commit({ ...state, session: { ...s, results: { ...s.results, [exoId]: s.results[exoId].map((x, k2) => k2 === i ? { ...x, feel: Number(k) } : x) } } });
+      closeSheet();
+    };
+    openSheet(el('div', { class: 'feel-ask' },
+      el('h3', { text: `${e.name} — série ${i + 1} : c’était comment ?` }),
+      el('div', { class: 'feel-row' }, ...Object.entries(Coach.FEELS).map(([k, f]) => el('button', { class: `feel-btn f${k}`, type: 'button', id: `feel-${k}`, onclick: () => pick(k) },
+        el('span', { class: 'fe', text: f.e }), el('b', { text: f.t }), el('small', { text: f.s })))),
+      el('p', { class: 'hint', text: 'Sois honnête : c’est ce qui règle la prochaine cible (facile → on accélère, à fond → on consolide).' })));
   }
   function openMenu(exoId) {
     const e = state.exos.find(x => x.id === exoId);
@@ -645,12 +657,14 @@
       if (prs.includes(e.name)) xp += XP.pr;
       const fmtSets = (arr) => arr.map(t => `${t.reps}${isTemps(e) ? 's' : '×' + fmtKg(t.charge)}`).join(' · ');
       const before = fmtSets(e.sets), after = fmtSets(next);
-      if (before !== after) changes.push({ name: e.name, before, after, up: next.some(n => n.up), deload: next.some(n => n.deload) });
-      if (failedIdx.length) failed.push({ id: e.id, name: e.name, idx: failedIdx, res, T, retry: next.map(({ up, deload, ...t }) => t), auto: next.some(n => n.deload), down: downLabel(e), prev: (c) => prevCharge(e, c), temps: isTemps(e) });
+      const whys = [...new Set(next.filter((n, i) => res[i]?.done).map(n => n.why).filter(Boolean))];
+      if (before !== after) changes.push({ name: e.name, before, after, up: next.some(n => n.up), deload: next.some(n => n.deload), why: whys.join(' · ') });
+      else if (res.some(r => r.done && r.feel === 3)) changes.push({ name: e.name, before, after, same: true, why: whys.join(' · ') });
+      if (failedIdx.length) failed.push({ id: e.id, name: e.name, idx: failedIdx, res, T, retry: next.map(({ up, deload, why, ...t }) => t), auto: next.some(n => n.deload), down: downLabel(e), prev: (c) => prevCharge(e, c), temps: isTemps(e) });
       exosLog[e.id] = { name: e.name, sets: res };
       const done = res.some(r => r.done);
       if (light) return { ...e };
-      return { ...e, sets: next.map(({ up, deload, ...t }) => t), last: res, best, stalled: done ? (progressed ? 0 : e.stalled + 1) : e.stalled };
+      return { ...e, sets: next.map(({ up, deload, why, ...t }) => t), last: res, best, stalled: done ? (progressed ? 0 : e.stalled + 1) : e.stalled };
     });
     if (light) xp = Math.round(xp * XP.light);
     const cardio = ['avant', 'apres'].map(pos => { const c = s.cardio?.[pos]; const sec = cardioSec(c); return sec > 0 ? { pos, type: c.type, sec } : null; }).filter(Boolean);
@@ -692,9 +706,16 @@
     if (h.challenges.total) list.append(el('li', { class: h.challenges.won === h.challenges.total ? 'gold' : 'good', html: `⚡ <b>Défis : ${h.challenges.won}/${h.challenges.total} réussis</b><small>${h.challenges.won === h.challenges.total ? 'Carton plein — les cibles montent.' : 'Les défis ratés restent en place : on les retente.'}</small>` }));
     for (const n of h.paliers) list.append(el('li', { class: 'gold', html: `⬆️ <b>Palier franchi</b> — ${n}<small>Charge augmentée pour la prochaine fois.</small>` }));
     for (const n of h.prs) list.append(el('li', { class: 'gold', html: `🏆 <b>Nouveau record</b> — ${n}` }));
-    for (const c of changes) list.append(el('li', { class: c.up ? 'gold' : c.deload ? 'warn' : 'good', html: `<b>${c.name}</b>${c.deload ? ' <small style="display:inline">· recalibrage −1 cran (raté 2×)</small>' : ''}<small>${c.before} → <b>${c.after}</b></small>` }));
+    for (const c of changes) {
+      const li = el('li', { class: c.up ? 'gold' : c.deload ? 'warn' : 'good' }, el('b', { text: c.name }),
+        el('small', { text: c.same ? `${c.after} — on garde` : `${c.before} → ${c.after}` }));
+      if (c.why) li.append(el('small', { class: 'why', text: `🧠 ${c.why}` }));
+      list.append(li);
+    }
     if (h.light) list.append(el('li', { text: 'Séance légère : cibles inchangées, série de semaines préservée. Bien joué d’être venu.' }));
     else if (!changes.length && !failed.length) list.append(el('li', { text: 'Aucune cible n’a bougé — la prochaine fois, vise +1 rep sur une série.' }));
+    const coachTips = changes.flatMap(c => Coach.advise(state.exos.find(x => x.name === c.name) || { name: c.name }, recentSets(state.exos.find(x => x.name === c.name))));
+    for (const t of coachTips) list.append(el('li', { class: t.level === 'warn' ? 'warn' : 'good', html: `🧠 <b>${t.title}</b><small>${t.text}</small>` }));
     // défis ratés : la décision t'appartient
     const adj = el('div');
     if (failed.length) {
@@ -801,6 +822,8 @@
     return el('div', { class: 'stat-row' }, el('span', { class: 'n', text: e.name }), el('span', { class: 'tnum', text: charge }), spark,
       el('span', { class: `trend ${d === null ? 'flat' : d > 0 ? 'up' : d < 0 ? 'down' : 'flat'}`, text: d === null ? '·' : `${d > 0 ? '+' : ''}${d} %` }));
   }
+  // séries des 3 dernières séances où l'exercice a été fait (les plus anciennes d'abord)
+  const recentSets = (e) => e ? state.history.filter(h => h.exos?.[e.id]).slice(-3).map(h => h.exos[e.id].sets) : [];
   function axesBlock() {
     const out = el('div', { class: 'axes' });
     const H = state.history, last = H.at(-1);
@@ -822,6 +845,7 @@
     const stalled = state.exos.filter(e => e.stalled >= 2);
     if (stalled.length >= 3) out.append(ax('warn', 'Semaine de décharge conseillée', `${stalled.length} exercices stagnent (${stalled.map(e => e.name).join(', ')}). Fais une semaine de séances légères (−10 %) : la fatigue accumulée retombe, les défis repassent ensuite.`));
     for (const e of state.exos) {
+      for (const t of Coach.advise(e, recentSets(e))) out.append(ax(t.level, `🧠 ${t.title}`, t.text));
       if (e.stalled >= 2 && stalled.length < 3) out.append(ax('warn', `${e.name} stagne depuis ${e.stalled} séances`, `Essaie ${downLabel(e)} de moins avec ${e.repMax} reps propres, puis remonte. Ou place-le plus tôt dans la séance.`));
       const p = exoProgress(e);
       const c0 = e.sets.find(s => typeof s.charge === 'number')?.charge;

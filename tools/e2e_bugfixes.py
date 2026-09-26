@@ -24,6 +24,8 @@ def synced(pg): pg.wait_for_function("document.querySelector('#status').dataset.
 with sync_playwright() as p:
     b = p.chromium.launch()
     ctx = b.new_context(viewport={"width": 390, "height": 800}, is_mobile=True, has_touch=True)
+    # pop-up de ressenti (coach.js) : ce test ne s'y intéresse pas → réponse « Moyen » automatique
+    ctx.add_init_script("new MutationObserver(() => document.getElementById('feel-2')?.click()).observe(document, { childList: true, subtree: true });")
     ctx.route("**/config.js", lambda r, q: r.fulfill(content_type="application/javascript", body=f"window.CARNET_CONFIG={{SHEETS_URL:'{FAKE_URL}',TOKEN:'{TOKEN}'}};"))
     ctx.route("https://script.google.com/**", fake_sheets)
     pg = ctx.new_page()
