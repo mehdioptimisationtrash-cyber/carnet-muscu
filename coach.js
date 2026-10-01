@@ -156,7 +156,8 @@
     const avg = (k) => Math.round(pairs.reduce((x, p) => x + p[k], 0) / pairs.length);
     let delta = 0;
     for (const p of pairs) {
-      if (!p.ok && p.real <= p.prop * 1.1) delta += REST_ADJ.step;                 // repos proposé respecté, et série suivante à fond/ratée : trop court
+      if (!p.ok && p.real >= p.prop * 0.9) delta += REST_ADJ.step;                 // repos proposé respecté, et série suivante à fond/ratée : trop court
+      // repos écourté puis série dure : ça ne dit rien du repos proposé (il n'a pas été essayé) → conseil, pas d'ajustement
       else if (p.ok && p.feel === 1 && p.real <= p.prop * 1.1) delta -= REST_ADJ.step; // série suivante facile avec le repos proposé (ou moins) : on peut raccourcir
       else if (p.ok && p.real < p.prop * 0.85) delta -= REST_ADJ.step / 2;          // tu repars avant la fin et ça passe : tu récupères vite
     }

@@ -29,7 +29,11 @@ with sync_playwright() as p:
     pg.clock.install()
     pg.goto(BASE); pg.wait_for_function("document.querySelector('#status').dataset.state === 'ok'", timeout=15000)
     check("40 kg × 8 · 8 · 8" in pg.text_content("#x-dc .last"), "dernière fois affiche la charge")
-    pg.click("#btnStart"); pg.click("text=/^Démarrer$/")
+    pg.click("#btnStart"); pg.select_option("#scAvant", "elliptique"); pg.click("text=/^Démarrer$/")
+    pg.click("#cardio-avant .btn.primary"); pg.clock.run_for(600_000)
+    pg.click("#go-dc-0")
+    cav = pg.evaluate("window.App.state.session.cardio.avant")
+    check(cav["startedAt"] is None and 595 <= cav["sec"] <= 605, f"▶ de la 1re série arrête le cardio d'échauffement ({cav['sec']} s)")
     rests = []
     for i, feel in enumerate([1, 2, 3]):
         if i: pg.clock.run_for(200_000)   # 200 s entre deux validations = ~160 s de repos réel pour 120 s proposées

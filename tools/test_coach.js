@@ -78,3 +78,6 @@ assert.strictEqual(C.realRest(poly, a1, b1), 95);                               
 const st = C.restStats([{ date: '2026-09-30', exos: { x: { name: 'Développé couché', sets: [a1, b1] } } }], [{ id: 'x', name: 'Développé couché', mode: 'reps' }]);
 assert.deepStrictEqual([st.all.n, st.all.real, st.poly.n, st.feel[2].n, st.measured], [1, 95, 1, 1, 100]);
 console.log('repos v2 OK');
+// repos écourté (70 s pour 140 proposées) puis série dure : pas d'allongement du repos proposé
+assert.strictEqual(C.analyzeRest(poly, mk([70, 75], [2, 3, 3], 140)).delta, 0);
+console.log('repos v3 OK');

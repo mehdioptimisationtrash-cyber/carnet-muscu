@@ -419,15 +419,22 @@
   }
   // ▶ : on attaque la série → le repos s'arrête, et sa durée réelle est mesurée (validation précédente → ce tap)
   function startSet(exoId, i) {
-    const s = state.session; if (!s) return;
+    const s = endWarmup(state.session); if (!s) return;
     stopRest();
     commit({ ...state, session: { ...s, results: { ...s.results, [exoId]: s.results[exoId].map((x, k) => k === i ? { ...x, start: Date.now() } : x) } } });
+  }
+  // première série attaquée : le cardio d'échauffement encore en marche s'arrête là (oublié le 01/10 : 75 min comptées au lieu de 13)
+  function endWarmup(s) {
+    const c = s?.cardio?.avant;
+    if (!c?.startedAt) return s;
+    runShortcut('renfo');
+    return { ...s, cardio: { ...s.cardio, avant: { ...c, sec: cardioSec(c), startedAt: null, done: true } } };
   }
   const sessionFeels = () => Object.values(state.session?.results || {}).flat().map(r => r.feel).filter(Boolean);
   // repos après une série : proposé par le coach (type d'exercice, ressenti, historique) ou fixe si choisi dans ⚙︎
   const restAfter = (e, feel) => state.settings.restAuto === false ? state.settings.rest : Coach.restFor(e, feel, sessionFeels());
   function logSet(exoId, i, r, deloadRest = false) {
-    const s = state.session;
+    const s = r.done ? endWarmup(state.session) : state.session;
     const started = s.results[exoId][i]?.start;
     if (r.done) r = { ...r, ...(started ? { start: started } : {}), at: Date.now(), rest: restAfter(state.exos.find(x => x.id === exoId)) };
     const results = { ...s.results, [exoId]: s.results[exoId].map((x, k) => k === i ? r : x) };
