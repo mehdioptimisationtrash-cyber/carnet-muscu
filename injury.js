@@ -10,7 +10,7 @@
  */
 (function (root) {
   'use strict';
-  const ZONES = { epaule: 'Épaule', pec: 'Pectoraux', dos: 'Bas du dos', ischio: 'Ischios', quadri: 'Quadriceps / genou', coude: 'Coude / bras', poignet: 'Poignet', mollet: 'Mollet', nuque: 'Nuque / trapèzes', autre: 'Autre' };
+  const ZONES = { epaule: 'Épaule', pec: 'Pectoraux', milieu_dos: 'Milieu du dos (rhomboïdes, trapèze moyen)', dos: 'Bas du dos', ischio: 'Ischios', quadri: 'Quadriceps / genou', coude: 'Coude / bras', poignet: 'Poignet', mollet: 'Mollet', nuque: 'Nuque / trapèzes', autre: 'Autre' };
   const SEVERITY = {
     leger: { t: 'Léger (grade 1)', s: 'Gêne ou douleur supportable, force à peu près normale, pas de bleu', ends: [3, 10, 21] },
     modere: { t: 'Modéré (grade 2)', s: 'Douleur nette, perte de force, gonflement ou bleu', ends: [7, 21, 42] },
@@ -21,6 +21,8 @@
   const MAP = {
     epaule: { stop: /elevation|frontal|lateral|exterieur|mill?itaire|extension epaule|arnold|upright|rowing menton/, reduce: /developpe|couche|pecs|ecarte|butterfly|dips|pompe|oiseau|tirage|pulldown|traction|row|tricep/ },
     pec: { stop: /pecs|couche|ecarte|butterfly|developpe|dips|pompe|chest|bench/, reduce: /mill?itaire|elevation|frontal|tricep/ },
+    // entre les omoplates : tout ce qui rapproche les omoplates (tirages horizontaux, oiseau) ou les fixe sous charge (élévations)
+    milieu_dos: { stop: /row|rowing|tirage horizontal|oiseau|face pull|reverse fly|shrug|trapeze|frontal/, reduce: /pulldown|tirage|traction|pull.?up|renverse|lomb|bas du dos|souleve|deadlift|elevation|lateral|exterieur|mill?itaire/ },
     dos: { stop: /renverse|lomb|souleve|deadlift|squat|good morning|bas du dos/, reduce: /row|rowing|tirage|leg press|presse|gainage|fente/ },
     ischio: { stop: /leg curl|ischio|souleve|deadlift|renverse|hip thrust/, reduce: /leg press|presse|squat|fente/ },
     quadri: { stop: /leg extension|squat|fente|leg press|presse|lunge/, reduce: /leg curl|mollet/ },

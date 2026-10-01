@@ -32,3 +32,7 @@ const sev = { ...inj, severity: 'severe' };
 assert.strictEqual(I.phaseOf(sev, '2026-10-20').name, 'Avis médical');
 assert.strictEqual(I.phaseOf({ ...sev, clearedAt: '2026-10-20' }, '2026-10-20').n, 2);
 console.log('injury OK');
+// milieu du dos (rhomboïdes / trapèze moyen)
+const back = [{ id: 'hr', name: 'Horizontal row' }, { id: 'oi', name: 'Oiseau' }, { id: 'ef', name: 'Élévation frontale poulie' }, { id: 'lp', name: 'Lat pulldown' }, { id: 'bd', name: 'Bas du dos renversé' }, { id: 'he', name: 'Haltères extérieurs' }, { id: 'dc', name: 'Développé couché' }, { id: 'lc', name: 'Leg curl' }];
+assert.deepStrictEqual(I.suggest('milieu_dos', back), { hr: 'stop', oi: 'stop', ef: 'stop', lp: 'reduce', bd: 'reduce', he: 'reduce' });
+console.log('milieu du dos OK');
