@@ -88,7 +88,29 @@ h1 { font-size: 30px; font-weight: 700; letter-spacing: -.01em; margin: 0; line-
 /* séances alternées : catégorie du jour (« à faire ») vs l'autre (« en attente ») */
 .set .feel { position: absolute; top: -7px; left: -6px; font-size: 14px; line-height: 1; }
 .feel-ask h3 { margin-bottom: 12px; }
-.feel-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.feel-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.feel-btn.f4:hover { border-color: var(--bad); background: var(--bad-soft); }
+/* ▶ démarrer la série : coupe le repos, chronomètre le vrai repos */
+.play { align-self: center; width: 44px; height: 44px; border-radius: 50%; border: 0; background: var(--accent); color: #fff; font-size: 16px; cursor: pointer; box-shadow: 0 2px 8px rgba(35,131,226,.35); transition: transform .12s ease; }
+.play:active { transform: scale(.92); }
+.play:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.set.running { border-color: var(--accent); background: var(--accent-soft); animation: running 1.6s ease-in-out infinite; }
+@keyframes running { 50% { box-shadow: 0 0 0 4px var(--accent-soft); } }
+@media (prefers-reduced-motion: reduce) { .set.running { animation: none; } }
+/* blessures */
+.injury { margin: 0 0 10px; padding: 12px; border-radius: 10px; background: var(--bad-soft); border-left: 3px solid var(--bad); }
+.injury.done { background: var(--good-soft); border-left-color: var(--good); }
+.injury b { display: block; }
+.injury small { display: block; color: var(--text); margin: 2px 0 8px; font-size: 12.5px; }
+.injury-note { color: var(--bad); font-weight: 500; font-size: 12.5px; }
+.exo.paused { opacity: .75; }
+.exo.paused .injury-note { margin-top: 6px; }
+.injury-btn { margin-top: 14px; width: 100%; color: var(--bad); }
+.warn-txt { color: var(--bad); }
+.ij-exos { display: flex; flex-direction: column; gap: 6px; }
+.ij-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13.5px; }
+.ij-row select { max-width: 58%; }
+.tnum.muted { color: var(--muted); }
 .feel-btn { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 14px 6px; border-radius: 12px; border: 1.5px solid var(--line-strong); background: var(--bg-card); cursor: pointer; transition: transform var(--dur, .12s) ease; }
 .feel-btn .fe { font-size: 34px; line-height: 1.1; }
 .feel-btn small { color: var(--muted); font-size: 11px; text-align: center; }
@@ -310,3 +332,5 @@ canvas.confetti { position: fixed; inset: 0; pointer-events: none; z-index: 40; 
   .stat-row { grid-template-columns: minmax(0,1fr) 56px 70px 50px; font-size: 13px; }
 }
 @media (prefers-reduced-motion: reduce) { .set, .bar > i, .pbar > i, .sheet { transition: none; animation: none; } .set.pop { animation: none; } }
+.injury .row3 { display: flex; flex-wrap: wrap; gap: 6px; }
+.injury .row3 .btn { font-size: 12.5px; padding: 5px 9px; flex: 1 1 auto; }

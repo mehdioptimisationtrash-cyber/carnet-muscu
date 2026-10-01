@@ -66,3 +66,15 @@ assert.ok(fast.delta < 0); assert.strictEqual(C.restAdvice(poly, fast).level, 'g
 assert.strictEqual(C.analyzeRest(poly, mk([900], [2, 2])), null);
 assert.strictEqual(C.nextRestAdj({ restAdj: 55 }, 20), 60);
 console.log('repos OK');
+
+// ---------- très difficile, repos mesuré par ▶, fatigue, moyennes ----------
+assert.strictEqual(C.next(e, T(40, 10), R(40, 11, 4), ctx(stack)).reps, 10);           // échec : on garde la cible
+assert.ok(C.next(e, T(40, 10), R(40, 7, 4), ctx(stack)).deload);
+assert.strictEqual(C.restFor(poly, 4), 180);
+assert.strictEqual(C.restFor(poly, 2, [3, 3, 4, 2]), 135);                              // séance dure : +15 s
+assert.strictEqual(C.restFor(poly, 2, [1, 2, 3]), 120);
+const a1 = { done: true, reps: 8, at: 1e12, rest: 120, feel: 2 }, b1 = { done: true, reps: 8, start: 1e12 + 95e3, at: 1e12 + 130e3, feel: 2 };
+assert.strictEqual(C.realRest(poly, a1, b1), 95);                                        // chronométré : start − validation précédente
+const st = C.restStats([{ date: '2026-09-30', exos: { x: { name: 'Développé couché', sets: [a1, b1] } } }], [{ id: 'x', name: 'Développé couché', mode: 'reps' }]);
+assert.deepStrictEqual([st.all.n, st.all.real, st.poly.n, st.feel[2].n, st.measured], [1, 95, 1, 1, 100]);
+console.log('repos v2 OK');

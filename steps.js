@@ -43,6 +43,7 @@ window.Steps = (() => {
     try {
       const got = await S.load(true);
       if (!got.state) return false;
+      A().pull?.(got.state);   // la feuille a une version plus récente (autre appareil, correction) : on la prend avant toute nouvelle sauvegarde
       const remote = got.state.steps && typeof got.state.steps === 'object' ? got.state.steps : {};
       const dirty = new Set(S.dirtySteps());
       const merged = { ...(st().steps || {}), ...Object.fromEntries(Object.entries(remote).filter(([d]) => !dirty.has(d))) };

@@ -164,8 +164,10 @@
   const challengeText = (e, cs) => cs.map(c => `S${c.i + 1} +${c.kind === 'charge' ? c.delta + ' kg' : plural(c.delta, isTemps(e) ? 's' : 'rep').replace(/^(\d+) s(s)?$/, '$1 s')}`).join(' · ');
   // exercices du jour : ceux de la catégorie à faire (Devant / Derrière en alternance)
   const nextCat = () => Cats.nextCat(state);
-  const dayExos = () => state.exos.filter(e => Cats.catOf(e) === nextCat());
-  const allChallenges = () => dayExos().map(e => ({ e, cs: challengesOf(e) })).filter(x => x.cs.length);
+  // blessure en cours (injury.js) : exercice en pause ou allégé, jamais de défi
+  const injuryOf = (e) => window.Injury ? Injury.forExo(state, e, today()) : null;
+  const dayExos = () => state.exos.filter(e => Cats.catOf(e) === nextCat() && !injuryOf(e)?.pause);
+  const allChallenges = () => dayExos().filter(e => !injuryOf(e)).map(e => ({ e, cs: challengesOf(e) })).filter(x => x.cs.length);
   const potentialXp = () => XP.session + dayExos().reduce((a, e) => a + e.sets.length * (XP.set + XP.hit), 0) + allChallenges().reduce((a, x) => a + x.cs.length * XP.challenge, 0);
 
   // progression auto-régulée par le ressenti de chaque série (😄 / 🙂 / 😣) : voir coach.js
@@ -240,7 +242,7 @@
     $('#btnStart').hidden = inS || !state.exos.length;
     $('#btnCancelTop').hidden = !inS;
     const root = $('#exos');
-    root.replaceChildren();
+    root.replaceChildren(...(window.Injury ? Injury.banners() : []));
     const currentId = inS ? state.exos.find(e => (state.session.results[e.id] || []).some(r => r.done === null))?.id : null;
     if (inS && state.session.cardio?.avant) root.append(cardioCard('avant'));
     // la catégorie du jour d'abord (couleur « à faire »), l'autre ensuite (couleur « en attente »)
@@ -255,6 +257,7 @@
       for (const e of list) root.append(exoCard(e, inS, e.id === currentId, isTodo));
     }
     if (inS && state.session.cardio?.apres) root.append(cardioCard('apres'));
+    if (window.Injury) root.append(el('button', { class: 'btn ghost injury-btn', type: 'button', id: 'btnInjury', text: '🚑 Je me suis blessé', onclick: () => Injury.openDeclare(currentId) }));
   }
   const newCardio = (type) => ({ type, startedAt: null, sec: 0, done: false });
   function cardioCard(pos) {
@@ -293,8 +296,10 @@
   }
   function exoCard(e, inS, current, isTodo) {
     const res = inS ? (state.session.results[e.id] || []) : [];
-    const T = targetsOf(e);
-    const chalIdx = new Set((inS && state.session.light) ? [] : challengesOf(e, T).map(c => c.i));
+    const inj = injuryOf(e);
+    const T = inj && !inS && !inj.pause ? Injury.adaptTargets(e, e.sets, inj) : targetsOf(e);
+    const chalIdx = new Set((inS && state.session.light) || inj ? [] : challengesOf(e, T).map(c => c.i));
+    const nextIdx = inS ? res.findIndex(r => r.done === null) : -1;
     const charges = [...new Set(T.map(s => fmtKg(s.charge)))].join(' / ');
     const head = el('div', { class: 'exo-head' },
       el('div', { class: 'exo-name', contenteditable: 'true', spellcheck: 'false', id: `n-${e.id}`, text: e.name,
@@ -312,18 +317,25 @@
         else { shown = r; cls += r.reps < t.reps ? ' fail' : r.reps > t.reps ? ' beat' : ' done'; if (!isTemps(e) && r.charge !== 'PDC' && r.reps >= e.repMax) cls += ' up'; }
       }
       const isChal = chalIdx.has(i) && (!inS || !r || r.done === null);
+      if (i === nextIdx && !r.start) sets.append(el('button', { class: 'play', type: 'button', id: `go-${e.id}-${i}`, 'aria-label': `Démarrer la série ${i + 1}`, onclick: () => startSet(e.id, i) }, el('span', { text: '▶' })));
+      if (i === nextIdx && r.start) cls += ' running';
       sets.append(el('button', { class: cls + (isChal ? ' chal' : ''), type: 'button', id: `s-${e.id}-${i}`, onclick: () => openSet(e.id, i) },
         ...(isChal ? [el('span', { class: 'zap', text: '⚡' })] : []),
         ...(inS && r?.done && feelEmoji(r) ? [el('span', { class: 'feel', text: feelEmoji(r) })] : []),
         el('span', { class: 'reps', html: `${shown.reps}<small>${isTemps(e) ? ' s' : (inS && r?.done ? `/${t.reps}` : '')}</small>` }),
-        el('span', { class: 'ch', text: label || (isTemps(e) ? `série ${i + 1}` : fmtKg(shown.charge)) })));
+        el('span', { class: 'ch', text: label || (cls.includes('running') ? 'en cours' : isTemps(e) ? `série ${i + 1}` : fmtKg(shown.charge)) })));
     });
+    if (inj?.pause) {
+      return el('div', { class: `exo paused ${isTodo ? 'cat-todo' : 'cat-wait'}`, id: `x-${e.id}` }, head,
+        el('div', { class: 'injury-note', text: `⛔ ${inj.zone} — ${inj.txt}` }));
+    }
     sets.append(el('button', { class: 'set add-set', type: 'button', id: `add-${e.id}`, 'aria-label': `Ajouter une série à ${e.name}`, onclick: () => addSet(e.id) }, el('span', { class: 'reps', text: '+' }), el('span', { class: 'ch', text: 'série' })));
     const foot = el('div', { class: 'exo-foot' });
     if (e.last) foot.append(el('span', { class: 'last', text: `dernière fois : ${fmtLast(e, e.last)}` }));
     if (!isTemps(e)) foot.append(el('span', { class: 'pbar', title: 'Progression vers le prochain palier' }, el('i', { style: `width:${Math.round(exoProgress(e) * 100)}%` })));
     if (e.best?.e1rm) foot.append(el('span', { text: `record ≈ ${e.best.e1rm} kg (1RM)` }));
-    const tip = tipFor(e); if (tip) foot.append(el('span', { class: `tip${chalIdx.size ? ' strong' : ''}`, text: tip }));
+    if (inj) foot.append(el('span', { class: 'injury-note', text: `🩹 ${inj.zone} · phase ${inj.phase.n}/4 : ${inj.txt}` }));
+    const tip = !inj && tipFor(e); if (tip) foot.append(el('span', { class: `tip${chalIdx.size ? ' strong' : ''}`, text: tip }));
     return el('div', { class: `exo ${isTodo ? 'cat-todo' : 'cat-wait'}${current ? ' current' : ''}`, id: `x-${e.id}` }, head, sets, foot);
   }
   function renderDock() {
@@ -405,11 +417,19 @@
       : `Cible pour la prochaine séance · palier à ${fmtReps(e, e.repMax)}${(t.fails || 0) ? ` · ratée ${t.fails}× de suite` : ''}`;
     openSheet(el('h3', { text: `${e.name} — série ${i + 1}` }), el('div', { class: 'sub', text: sub }), fields, resetHint, actions);
   }
+  // ▶ : on attaque la série → le repos s'arrête, et sa durée réelle est mesurée (validation précédente → ce tap)
+  function startSet(exoId, i) {
+    const s = state.session; if (!s) return;
+    stopRest();
+    commit({ ...state, session: { ...s, results: { ...s.results, [exoId]: s.results[exoId].map((x, k) => k === i ? { ...x, start: Date.now() } : x) } } });
+  }
+  const sessionFeels = () => Object.values(state.session?.results || {}).flat().map(r => r.feel).filter(Boolean);
   // repos après une série : proposé par le coach (type d'exercice, ressenti, historique) ou fixe si choisi dans ⚙︎
-  const restAfter = (e, feel) => state.settings.restAuto === false ? state.settings.rest : Coach.restFor(e, feel);
+  const restAfter = (e, feel) => state.settings.restAuto === false ? state.settings.rest : Coach.restFor(e, feel, sessionFeels());
   function logSet(exoId, i, r, deloadRest = false) {
     const s = state.session;
-    if (r.done) r = { ...r, at: Date.now(), rest: restAfter(state.exos.find(x => x.id === exoId)) };
+    const started = s.results[exoId][i]?.start;
+    if (r.done) r = { ...r, ...(started ? { start: started } : {}), at: Date.now(), rest: restAfter(state.exos.find(x => x.id === exoId)) };
     const results = { ...s.results, [exoId]: s.results[exoId].map((x, k) => k === i ? r : x) };
     let targets = s.targets || {};
     if (deloadRest) {
@@ -436,7 +456,17 @@
       el('h3', { text: `${e.name} — série ${i + 1} : c’était comment ?` }),
       el('div', { class: 'feel-row' }, ...Object.entries(Coach.FEELS).map(([k, f]) => el('button', { class: `feel-btn f${k}`, type: 'button', id: `feel-${k}`, onclick: () => pick(k) },
         el('span', { class: 'fe', text: f.e }), el('b', { text: f.t }), el('small', { text: f.s })))),
+      ...(injuryOf(e) ? [el('button', { class: 'btn warn', type: 'button', id: 'feel-pain', style: 'margin-top:10px;width:100%', text: '⚠️ Douleur (plus de 3/10) — j’arrête cet exercice', onclick: () => painStop(e, i) })] : []),
       el('p', { class: 'hint', text: 'Sois honnête : c’est ce qui règle la prochaine cible (facile → on accélère, à fond → on consolide).' })));
+  }
+  // douleur pendant la reprise : on arrête l'exercice pour aujourd'hui et la phase de la blessure est prolongée
+  function painStop(e, i) {
+    const s = state.session, inj = injuryOf(e);
+    const results = { ...s.results, [e.id]: s.results[e.id].map((x, k) => k === i ? { ...x, feel: 4, pain: true } : x.done === null ? { ...x, done: false } : x) };
+    const injuries = (state.injuries || []).map(x => x.id === inj.inj.id ? { ...x, pains: [...new Set([...(x.pains || []), today()])] } : x);
+    commit({ ...state, injuries, session: { ...s, results } });
+    closeSheet(); stopRest();
+    toast('Stop pour aujourd’hui sur cet exercice', `Phase prolongée de ${Injury.PAIN_EXTRA_DAYS} jours. Glace 15 min si ça tire, et pas de charge sur la zone d’ici demain.`);
   }
   function openMenu(exoId) {
     const e = state.exos.find(x => x.id === exoId);
@@ -490,6 +520,7 @@
         el('div', { class: 'row2' },
           el('button', { class: 'btn', type: 'button', text: '↑ Monter', onclick: () => moveExo(idx, -1) }),
           el('button', { class: 'btn', type: 'button', text: '↓ Descendre', onclick: () => moveExo(idx, 1) })),
+        ...(window.Injury ? [el('button', { class: 'btn warn', type: 'button', text: '🚑 Je me suis blessé sur cet exercice', onclick: () => Injury.openDeclare(exoId) })] : []),
         el('button', { class: 'btn ghost', type: 'button', text: 'Supprimer cet exercice', onclick: () => { if (confirm(`Supprimer « ${e.name} » ?`)) { commit({ ...state, exos: state.exos.filter(x => x.id !== exoId) }); closeSheet(); } } }),
       ));
   }
@@ -574,7 +605,13 @@
   function startSession(light) {
     // légère : −10 % arrondi au cran, et au minimum un cran de moins ; sur une pile de plaques : la plaque du dessous
     const lighten = (e, c) => hasStack(e) ? (prevCharge(e, c) ?? c) : Math.max(0, Math.min(roundStep(c * LIGHT_FACTOR, e.step), round1(c - e.step)));
-    const targets = Object.fromEntries(state.exos.map(e => [e.id, e.sets.map(t => light && typeof t.charge === 'number' && t.charge > 0 ? { ...t, charge: lighten(e, t.charge) } : { ...t })]));
+    const forSession = (e) => {
+      const inj = injuryOf(e);
+      if (inj?.pause) return [];                                   // blessure, phase de protection : pas de série
+      if (inj) return Injury.adaptTargets(e, e.sets, inj);         // reprise : charge réduite, reps/séries du protocole
+      return e.sets.map(t => light && typeof t.charge === 'number' && t.charge > 0 ? { ...t, charge: lighten(e, t.charge) } : { ...t });
+    };
+    const targets = Object.fromEntries(state.exos.map(e => [e.id, forSession(e)]));
     const results = Object.fromEntries(state.exos.map(e => [e.id, targets[e.id].map(t => ({ charge: t.charge, reps: t.reps, done: null }))]));
     const avant = $('#scAvant')?.value || 'none';   // choix mémorisé pour la prochaine fois ; le cardio de fin se décide à « Terminer »
     const cardio = { avant: avant === 'none' ? null : newCardio(avant), apres: null };
@@ -644,8 +681,9 @@
       if (!raw.some(r => r.done !== null)) return e;   // exercice non touché : réservé à une autre séance
       const T = targetsOf(e);
       const res = raw.map(r => r.done === null ? { ...r, done: false } : r);
-      const chal = light ? [] : challengesOf(e, T);
-      const next = light ? e.sets.map(t => ({ ...t })) : e.sets.map((t, i) => nextTarget(e, T[i] || t, res[i]));
+      const soft = light || !!injuryOf(e);   // séance légère ou reprise après blessure : on maintient, cibles d'avant gardées
+      const chal = soft ? [] : challengesOf(e, T);
+      const next = soft ? e.sets.map(t => ({ ...t })) : e.sets.map((t, i) => nextTarget(e, T[i] || t, res[i]));
       let best = e.best, progressed = false;
       const failedIdx = [];
       res.forEach((r, i) => {
@@ -653,14 +691,14 @@
         if (!r.done) return;
         const t = T[i] || e.sets[i];
         setsDone++; xp += XP.set;
-        if (r.reps >= t.reps) xp += XP.hit; else if (!light) { fails++; failedIdx.push(i); }
+        if (r.reps >= t.reps) xp += XP.hit; else if (!soft) { fails++; failedIdx.push(i); }
         if (r.reps > t.reps) xp += XP.beat;
         const c = chal.find(x => x.i === i);
         if (c) { chalTotal++; if (r.reps >= t.reps && (typeof t.charge !== 'number' || r.charge >= t.charge)) { chalWon++; xp += XP.challenge; } }
         if (next[i]?.up) { xp += XP.palier; if (!paliers.includes(e.name)) paliers.push(e.name); }
         if (typeof r.charge === 'number') volume += r.charge * r.reps;
         const v = e1rm(r.charge, r.reps);
-        if (v && (!best || v > best.e1rm)) { best = { e1rm: v, charge: r.charge, reps: r.reps, date }; if (!prs.includes(e.name)) prs.push(e.name); }
+        if (v && !soft && (!best || v > best.e1rm)) { best = { e1rm: v, charge: r.charge, reps: r.reps, date }; if (!prs.includes(e.name)) prs.push(e.name); }
         if (next[i] && (next[i].reps !== t.reps || next[i].charge !== t.charge)) progressed = true;
       });
       if (prs.includes(e.name)) xp += XP.pr;
@@ -668,14 +706,14 @@
       const before = fmtSets(e.sets), after = fmtSets(next);
       const whys = [...new Set(next.filter((n, i) => res[i]?.done).map(n => n.why).filter(Boolean))];
       if (before !== after) changes.push({ name: e.name, before, after, up: next.some(n => n.up), deload: next.some(n => n.deload), why: whys.join(' · ') });
-      else if (res.some(r => r.done && r.feel === 3)) changes.push({ name: e.name, before, after, same: true, why: whys.join(' · ') });
+      else if (!soft && res.some(r => r.done && Coach.isHard(r.feel))) changes.push({ name: e.name, before, after, same: true, why: whys.join(' · ') });
       if (failedIdx.length) failed.push({ id: e.id, name: e.name, idx: failedIdx, res, T, retry: next.map(({ up, deload, why, ...t }) => t), auto: next.some(n => n.deload), down: downLabel(e), prev: (c) => prevCharge(e, c), temps: isTemps(e) });
       const rest = Coach.analyzeRest(e, res, T);
       if (rest) restLog.push({ e, an: rest });
       exosLog[e.id] = { name: e.name, sets: res, ...(rest ? { rest: { prop: rest.prop, real: rest.real } } : {}) };
       const done = res.some(r => r.done);
       const restAdj = rest && state.settings.restAuto !== false ? Coach.nextRestAdj(e, rest.delta) : e.restAdj;
-      if (light) return { ...e, ...(restAdj !== undefined ? { restAdj } : {}) };
+      if (soft) return { ...e, ...(restAdj !== undefined ? { restAdj } : {}) };
       return { ...e, ...(restAdj !== undefined ? { restAdj } : {}), sets: next.map(({ up, deload, why, ...t }) => t), last: res, best, stalled: done ? (progressed ? 0 : e.stalled + 1) : e.stalled };
     });
     if (light) xp = Math.round(xp * XP.light);
@@ -790,6 +828,7 @@
       ...(window.Steps ? [window.Steps.tile()] : []),
     ));
     v.append(el('h2', { class: 'sec', text: 'Axes d’amélioration' }), axesBlock());
+    v.append(restBlock());
     if (window.Nutrition) v.append(window.Nutrition.statsBlock());
     if (window.Steps) v.append(window.Steps.statsBlock());
     if (!H.length) { v.append(el('div', { class: 'empty', style: 'margin-top:14px', text: 'Termine ta première séance pour débloquer les tendances.' })); v.append(badgesBlock()); return; }
@@ -844,6 +883,7 @@
   const recentSets = (e) => e ? state.history.filter(h => h.exos?.[e.id]).slice(-3).map(h => h.exos[e.id].sets) : [];
   function axesBlock() {
     const out = el('div', { class: 'axes' });
+    if (window.Injury) Injury.axes(out);
     const H = state.history, last = H.at(-1);
     if (!last) { if (window.Steps) window.Steps.axes(out); if (window.Nutrition) window.Nutrition.axes(out); out.append(ax('good', 'Commence par une séance', 'Elle fixe ta base. Dès la suivante, chaque série réussie devient un défi : +1 rep, puis +1 cran de charge à 15 reps.')); return out; }
     const gap = daysBetween(last.date, today());
@@ -879,6 +919,18 @@
     if (out.children.length <= 1) out.append(ax('good', 'Tout progresse', 'En déficit calorique, maintenir ou gagner 1 rep par série = tu gardes ton muscle. Continue, la charge suit toute seule.'));
     return out;
   }
+  // moyennes des repos (30 jours) : global, par type d'exercice, selon le ressenti de la série d'avant, par exercice
+  function restBlock() {
+    const since = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+    const R = Coach.restStats(state.history, state.exos, since), f = Coach.fmtSec;
+    const wrap = el('div', {}, el('h2', { class: 'sec', text: '⏱️ Temps de repos — 30 jours' }));
+    if (!R.all.n) { wrap.append(el('div', { class: 'empty', text: 'Touche ▶ avant chaque série : le repos réel est chronométré et ses moyennes apparaissent ici.' })); return wrap; }
+    const t = (k, b) => b.n ? tile(k, f(b.real), ` / ${f(b.prop)}`) : null;
+    wrap.append(el('div', { class: 'tiles' }, ...[t('Moyenne (réel / proposé)', R.all), t('Polyarticulaires', R.poly), t('Isolation', R.iso),
+      ...Object.entries(Coach.FEELS).map(([k, x]) => t(`Après ${x.e} ${x.t.toLowerCase()}`, R.feel[k])), tile('Chronométrés avec ▶', R.measured, ' %')].filter(Boolean)));
+    for (const x of Object.values(R.exo).sort((a, b) => b.n - a.n)) wrap.append(el('div', { class: 'stat-row' }, el('span', { class: 'n', text: x.name }), el('span', { class: 'tnum', text: `${f(x.real)} réel` }), el('span', { class: 'tnum muted', text: `${f(x.prop)} proposé` }), el('span', { class: 'tnum muted', text: `${x.n}×` })));
+    return wrap;
+  }
   const ax = (cls, t, s) => el('div', { class: `ax ${cls}` }, el('b', { text: t }), el('small', { text: s }));
   function badgesBlock() {
     const wrap = el('div');
@@ -893,10 +945,18 @@
   $('#tabStats').addEventListener('click', () => { tab = 'stats'; render(); });
 
   /* ---------- passerelle pour les autres modules (nutrition.js) ---------- */
+  function pull(remote) {
+    const r = migrate(remote);
+    if (!r || !(r.rev > state.rev) || Sync.hasOutbox() || state.session) return false;
+    const dirty = Object.fromEntries(Sync.dirtyDays().filter(d => state.nutrition?.[d]).map(d => [d, state.nutrition[d]]));
+    state = { ...r, nutrition: { ...r.nutrition, ...dirty }, steps: state.steps, macros: r.macros || state.macros };
+    writeCache(state); render();
+    return true;
+  }
   window.App = {
     get state() { return state; },
     scriptVersion: 0,
-    commit, absorb, render, el, svgEl, $, openSheet, closeSheet, selectEl, tile, ax, toast, today, fmtDate, plural, weekKey, daysBetween, cardioMinutes,
+    commit, absorb, pull, render, el, svgEl, $, openSheet, closeSheet, selectEl, tile, ax, toast, today, fmtDate, plural, weekKey, daysBetween, cardioMinutes,
   };
 
   /* ---------- export / import (filet de sécurité) ---------- */

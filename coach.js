@@ -14,7 +14,9 @@
     1: { e: '😄', t: 'Facile', s: '3 reps ou plus en réserve', rir: 3 },
     2: { e: '🙂', t: 'Moyen', s: '1 à 2 reps en réserve', rir: 1.5 },
     3: { e: '😣', t: 'Difficile', s: 'à fond, 0 en réserve', rir: 0 },
+    4: { e: '🥵', t: 'Très difficile', s: 'échec, technique qui lâche', rir: 0 },
   };
+  const isHard = (feel) => feel >= 3;
   const TARGET_RIR = 2;          // cible d'une série « de travail » : finir à ~2 reps de l'échec
   const BIG_MISS = 3;            // raté de 3 reps ou plus en étant à fond = charge trop lourde
   const EXTENDED_MAX = 20;       // saut de plaque trop gros : on prolonge la plage jusqu'à 20 reps avant de monter
@@ -40,16 +42,17 @@
     const feel = r.feel;
     if (e.mode === 'temps') {
       if (r.reps < target.reps) return { ...base, fails: base.fails + 1, why: 'tenue ratée : on retente' };
-      const add = feel === 3 ? 0 : feel === 1 ? 2 * TEMPS_STEP : TEMPS_STEP;
+      const add = isHard(feel) ? 0 : feel === 1 ? 2 * TEMPS_STEP : TEMPS_STEP;
       return { charge: 'PDC', reps: Math.min(r.reps + add, e.repMax), fails: 0, why: add ? `+${add} s` : 'dur : on consolide la durée' };
     }
     if (r.reps < target.reps) {                                              // ratée
       const fails = base.fails + 1, down = ctx.prevCharge(r.charge);
-      if (down !== null && feel === 3 && target.reps - r.reps >= BIG_MISS) return { charge: down, reps: target.reps, fails: 0, deload: true, why: `raté de ${target.reps - r.reps} reps à fond : charge trop lourde, on allège` };
+      if (down !== null && isHard(feel) && target.reps - r.reps >= BIG_MISS) return { charge: down, reps: target.reps, fails: 0, deload: true, why: `raté de ${target.reps - r.reps} reps à fond : charge trop lourde, on allège` };
       if (down !== null && ctx.autoDeload && fails >= 2) return { charge: down, reps: target.reps, fails: 0, deload: true, why: 'raté 2 fois : on allège' };
       return { charge: r.charge, reps: target.reps, fails, why: 'raté : on retente' };
     }
     // réussie : l'effort ressenti décide de la marche suivante
+    if (feel === 4) return { charge: r.charge, reps: target.reps, fails: 0, why: 'réussie à l’échec : on garde la cible, pas de surenchère' };
     if (feel === 3) return { charge: r.charge, reps: Math.max(r.reps, target.reps), fails: 0, why: 'réussie à fond : on consolide avant d’ajouter' };
     const add = feel === 1 ? 2 : 1;
     const reps = r.reps + add;
@@ -72,7 +75,7 @@
     const f = (sets || []).filter((r) => r && r.done && FEELS[r.feel]).map((r) => r.feel);
     const n = f.length;
     const count = (k) => f.filter((x) => x === k).length;
-    return { n, easy: count(1), mid: count(2), hard: count(3), trend: n >= 3 && f[0] < f[n - 1] && f[n - 1] === 3 && f[0] === 1 };
+    return { n, easy: count(1), mid: count(2), hard: count(3) + count(4), trend: n >= 3 && f[0] === 1 && isHard(f[n - 1]) };
   }
 
   /**
@@ -115,14 +118,21 @@
     poly: { base: 120, min: 90, max: 180, label: 'polyarticulaire' },
     iso: { base: 75, min: 60, max: 120, label: 'isolation' },
   };
-  const REST_FEEL = { 1: -30, 2: 0, 3: 30 };
+  const REST_FEEL = { 1: -30, 2: 0, 3: 30, 4: 60 };
+  const REST_FATIGUE = 15;   // séance déjà dure (≥ la moitié des séries à fond) : +15 s partout
   const REST_ADJ = { step: 10, perSession: 20, min: -45, max: 60 };
   const POLY_RE = /couche|developpe|militaire|press|squat|souleve|deadlift|row|rowing|tirage|pulldown|traction|pull.?up|dips|fente|lunge|hip thrust|pompe|leg press|presse|chest|bench/;
   const norm = (x) => String(x || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   const restKind = (e) => (e.mode === 'temps' ? 'iso' : e.restKind || (POLY_RE.test(norm(e.name)) ? 'poly' : 'iso'));
   const clampRest = (e, sec) => { const k = REST[restKind(e)]; return Math.round(Math.min(k.max, Math.max(k.min, sec)) / 5) * 5; };
-  /** Repos proposé après une série de `e`, selon le ressenti de cette série (non noté = moyen). */
-  const restFor = (e, feel) => clampRest(e, REST[restKind(e)].base + (e.restAdj || 0) + (REST_FEEL[feel] || 0));
+  /** Repos proposé après une série de `e`, selon le ressenti de cette série (non noté = moyen) et la fatigue de la séance. */
+  const restFor = (e, feel, sessionFeels = []) => {
+    const rated = sessionFeels.filter((f) => FEELS[f]);
+    const tired = rated.length >= 4 && rated.filter(isHard).length >= rated.length / 2 ? REST_FATIGUE : 0;
+    return clampRest(e, REST[restKind(e)].base + (e.restAdj || 0) + (REST_FEEL[feel] || 0) + tired);
+  };
+  /** Repos réel entre la série a (validée à a.at) et la suivante b : mesuré si ▶ a été touché (b.start), sinon estimé. */
+  const realRest = (e, a, b) => Math.round(b.start ? (b.start - a.at) / 1000 : (b.at - a.at) / 1000 - setSeconds(e, b));
   /** Durée estimée d'une série (exécution + mise en place), pour isoler le vrai repos entre deux validations. */
   const setSeconds = (e, r) => (e.mode === 'temps' ? r.reps : r.reps * 3) + 15;
   const MIN_REAL_REST = 20, MAX_REAL_REST = 600;   // en dehors : série validée en retard ou pause → ignorée
@@ -137,10 +147,10 @@
     for (let i = 0; i + 1 < (sets || []).length; i++) {
       const a = sets[i], b = sets[i + 1];
       if (!a?.done || !b?.done || !a.at || !b.at || !a.rest) continue;
-      const real = Math.round((b.at - a.at) / 1000 - setSeconds(e, b));
+      const real = realRest(e, a, b);
       if (real < MIN_REAL_REST || real > MAX_REAL_REST) continue;
       const hit = !targets?.[i + 1] || b.reps >= targets[i + 1].reps;
-      pairs.push({ prop: a.rest, real, feel: b.feel, ok: hit && b.feel !== 3 });
+      pairs.push({ prop: a.rest, real, feel: b.feel, prevFeel: a.feel, measured: !!b.start, ok: hit && !isHard(b.feel) });
     }
     if (!pairs.length) return null;
     const avg = (k) => Math.round(pairs.reduce((x, p) => x + p[k], 0) / pairs.length);
@@ -169,7 +179,34 @@
     return { level: 'good', title: head, text: 'Repos bien calé : tu suis la proposition et les séries suivantes passent.' };
   }
 
-  const api = { FEELS, TARGET_RIR, rirOf, e1rmFelt, repsAt, next, feelStats, advise, REST, restKind, restFor, analyzeRest, nextRestAdj, restAdvice, fmtSec };
+  /**
+   * Moyennes de repos sur l'historique (30 derniers jours par défaut) : global, par type d'exercice, selon le ressenti de la série d'avant,
+   * par exercice. Chaque bloc : { n, real, prop } (secondes) ; `measured` = part des repos chronométrés avec ▶.
+   */
+  function restStats(history, exos, sinceDate) {
+    const byId = new Map(exos.map((e) => [e.id, e]));
+    const acc = () => ({ n: 0, real: 0, prop: 0 });
+    const out = { all: acc(), poly: acc(), iso: acc(), feel: { 1: acc(), 2: acc(), 3: acc(), 4: acc() }, exo: {}, measured: 0 };
+    const add = (b, p) => { b.n++; b.real += p.real; b.prop += p.prop; };
+    for (const h of history) {
+      if (sinceDate && h.date < sinceDate) continue;
+      for (const [id, x] of Object.entries(h.exos || {})) {
+        const e = byId.get(id) || { id, name: x.name, mode: 'reps' };
+        const an = analyzeRest(e, x.sets);
+        if (!an) continue;
+        for (const p of an.pairs) {
+          add(out.all, p); add(out[restKind(e)], p);
+          if (out.feel[p.prevFeel]) add(out.feel[p.prevFeel], p);
+          add(out.exo[id] || (out.exo[id] = { name: e.name, ...acc() }), p);
+          if (p.measured) out.measured++;
+        }
+      }
+    }
+    const fin = (b) => (b.n ? { ...b, real: Math.round(b.real / b.n), prop: Math.round(b.prop / b.n) } : b);
+    return { all: fin(out.all), poly: fin(out.poly), iso: fin(out.iso), feel: Object.fromEntries(Object.entries(out.feel).map(([k, b]) => [k, fin(b)])), exo: Object.fromEntries(Object.entries(out.exo).map(([k, b]) => [k, fin(b)])), measured: out.all.n ? Math.round(out.measured / out.all.n * 100) : 0 };
+  }
+
+  const api = { isHard, realRest, restStats, FEELS, TARGET_RIR, rirOf, e1rmFelt, repsAt, next, feelStats, advise, REST, restKind, restFor, analyzeRest, nextRestAdj, restAdvice, fmtSec };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Coach = api;
 })(typeof window !== 'undefined' ? window : globalThis);

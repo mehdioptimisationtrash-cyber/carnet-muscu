@@ -1,6 +1,6 @@
 # carnet-muscu — INDEX
 
-> Dernière analyse : 2026-09-26
+> Dernière analyse : 2026-10-01
 
 Carnet de musculation personnel de Mehdi, en PWA installable sur iPhone, sauvegardé dans une feuille Google Sheets via un script Apps Script. HTML/CSS/JS vanilla, sans framework, hébergé sur GitHub Pages (gratuit).
 
@@ -16,12 +16,14 @@ Carnet de musculation personnel de Mehdi, en PWA installable sur iPhone, sauvega
 | `app.js` | logique : modèle `state` (v2), progression par série (double progression 10→15 reps puis +cran de charge), séance (démarrer / valider série / repos / terminer), XP-niveaux-badges, stats & axes d'amélioration, export/import JSON, démarrage avec fusion cache ↔ feuille |
 | `sync.js` | couche Google Sheets : `load(quiet)` (GET), `scheduleSave()` (POST regroupé 1 s), file d'attente hors-ligne (`localStorage` drapeau `carnet-muscu-outbox`), jours nutrition / pas modifiés (`markDay`, `markSteps`), reprise sur `online` / `visibilitychange` |
 | `steps.js` | pas quotidiens : jauge 🚶 du Journal (saisie manuelle), relecture de la feuille au retour au premier plan (`refresh`), aide au raccourci iOS, tuile/axe/graphique 14 j dans Stats |
+| `injury.js` | blessures (module pur + UI, `window.Injury`) : `suggest(zone, exos)`, `phaseOf`, `forExo` (pause / allégé), `adaptTargets`, déclaration 🚑, bandeaux, axes |
 | `coach.js` | progression auto-régulée par le ressenti (module pur, `window.Coach`) : `next(e, cible, résultat, ctx)` → `{charge, reps, fails, up?, deload?, why}`, `advise(e, séries récentes)` → conseils, `e1rmFelt` (1RM corrigé des reps en réserve) |
 | `categories.js` | séances alternées Devant / Derrière (module pur, `window.Cats`) : `guessCat(nom)` par mots-clés, `catOf(exo)`, `entryCat(séance)`, `nextCat(state)` |
 | `config.js` | `SHEETS_URL` (URL Apps Script `/exec`) + `TOKEN` — **visibles publiquement**, seule protection = le script ne touche que cette feuille |
 | `sw.js` | service worker : cache des fichiers statiques (réseau d'abord pour les pages), jamais les appels Google ; bump `CACHE_VERSION` à chaque déploiement |
 | `manifest.webmanifest`, `icons/` | PWA (`standalone`, icônes 192/512/apple-touch 180 générées depuis 🏋️) |
 | `apps-script/Code.gs` | script Google (v6 : + `syncAssiette` toutes les 3 h → onglet `macros`, `installerAssiette()` à lancer une fois) à coller dans la feuille : `doGet` renvoie l'état, `doPost` l'écrit (onglets `state`, `historique`, `exercices`, `nutrition`, `pas`) ; accepte aussi un POST « raccourci » `{token, steps, date?}` sans `state`, ou `{token, iphone, montre}` → max |
+| `tools/test_injury.js`, `tools/e2e_injury.py` | blessures, ▶ par série, moyennes de repos, relecture de la feuille |
 | `tools/test_coach.js`, `tools/e2e_coach.py` | coach : règles de progression, pop-up ressenti, bilan |
 | `tools/e2e_assiette.py` | macros Assiette dans le Journal / stats, jamais renvoyées, relecture |
 | `tools/test_categories.js`, `tools/e2e_categories.py` | tests Devant / Derrière et « + série » en séance |
@@ -91,6 +93,13 @@ Déploiement : `git push` (Pages sur `main`, racine). Penser à `CACHE_VERSION` 
 - **À la demande (2026-09-22)** : bouton « 📲 Actualiser depuis Santé » (`#stepsRun`, iOS seulement) → `Steps.runShortcut()` navigue vers `shortcuts://run-shortcut?name=Muscu Pas` (`settings.stepsShortcut` pour renommer), pose `sessionStorage carnet-muscu-steps-await` ; au retour (`visibilitychange`), `refreshAfterShortcut()` relit la feuille à 0/4/10 s et toast le résultat. Le pont `shortcuts://` fonctionne ici : c'est l'action « Démarrer l'exercice » qui est réservée à la montre, pas le lancement. Couture de test : `window.__shortcutLog`.
 - **Relecture** : `Steps.refresh()` sur `visibilitychange` (≤ 1×/min, GET silencieux `Sync.load(true)`) fusionne les pas de la feuille via `App.absorb(patch)` (nouvelle passerelle : met à jour l'état + cache + rendu **sans** nouvelle `rev` ni sauvegarde). Bouton « ↻ Relire la feuille » dans la feuille de saisie.
 - **UI** : jauge 🚶 cliquable dans la carte du jour (`#stepsGauge`, classe `.gauge-btn`), marque 🚶 dans le calendrier si objectif atteint, recap « 🚶 N pas », objectif dans ⚙︎ Réglages (`settings.stepsGoal`, défaut 10 000 — demandé par Mehdi le 2026-09-22 ; aucune valeur n'était encore écrite dans la feuille), tuile « Pas / jour (7 j) », axe Marche (3 niveaux), graphique 14 jours, badge « 7 jours de marche à l'objectif ». « Remettre à zéro » écrit 0 (pas de suppression de ligne côté feuille). SW v12.
+
+## ▶ par série, 🥵 très difficile, blessures (2026-10-01, demande de Mehdi)
+- **▶ Démarrer la série** (`startSet`) : bouton rond devant la prochaine série de chaque exo en séance ; coupe le repos, pose `results[i].start`. Repos réel = `start − at` de la série précédente (sinon estimation). `Coach.restStats` → Stats « ⏱️ Temps de repos — 30 jours » (global, poly/iso, après chaque ressenti, par exo, % chronométrés). Constat du 29/09 : repos « mesurés » de 35–49 s = validations groupées → d'où le ▶.
+- **🥵 Très difficile** (feel 4) : cible gardée telle quelle, repos +60 s ; séance déjà dure (≥ moitié des séries à fond) → +15 s sur tous les repos.
+- **Blessures** (`state.injuries`) : 🚑 en bas de l'onglet Séance et dans ⋯ ; zone → exercices « touchés » (pause puis reprise) / « indirects » (allégés) proposés, modifiables. Phases selon la gravité (grade 1 : 0–2 j protection, 3–9 reprise 40 % × 15 × 2 séries, 10–20 renforcement 60 % × 12, 21–31 retour 85 % ; grade 2 : 7/21/42 j ; grade 3 : pause jusqu'au « feu vert du médecin »). Indirects : 60/70/85 %. Douleur > 3/10 (bouton dans la pop-up de ressenti, ou « Douleur aujourd'hui ») → exo arrêté, +3 jours. Pendant la blessure : pas de défi, cibles `e.sets` d'avant conservées (traité comme une séance légère pour cet exo). Sources : PEACE & LOVE (BJSM 2020), délais grade 1/2/3, règle douleur ≤ 3/10.
+- **Bug de synchro corrigé** : une PWA restée ouverte en arrière-plan gardait un vieil état et l'écrivait par-dessus la feuille (la correction du 23/09 avait été écrasée). `App.pull(remote)` au retour au premier plan prend la feuille si sa `rev` est plus récente (sauf envoi en attente ou séance en cours).
+- Données 01/10 : « Poulie extension epaule » → « Élévation frontale poulie » (iso) ; correction du 23/09 refaite ; blessure épaule grade 1 du 29/09 déclarée (touchés : élévation frontale, développé militaire, haltères extérieurs ; indirects : développé couché, développé assis, pecs).
 
 ## Coach : temps de repos mesurés et auto-régulés (2026-09-26, demande de Mehdi : « repos un peu longs »)
 - Avant : repos fixe (`settings.rest`), rien de mesuré. Maintenant chaque série validée garde `at` (ms) et `rest` (s proposées) ; repos réel = écart entre deux validations du même exo − durée estimée de la série (reps × 3 s + 15 s) ; ignoré hors [20 s, 600 s].
