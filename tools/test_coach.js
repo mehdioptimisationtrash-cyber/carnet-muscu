@@ -45,10 +45,11 @@ console.log('coach OK');
 // ---------- repos ----------
 const poly = { name: 'Développé couché', mode: 'reps' }, iso = { name: 'Poulie triceps', mode: 'reps' };
 assert.strictEqual(C.restKind(poly), 'poly'); assert.strictEqual(C.restKind(iso), 'iso'); assert.strictEqual(C.restKind({ name: 'Gainage', mode: 'temps' }), 'iso');
-assert.deepStrictEqual([C.restFor(poly, 1), C.restFor(poly, 2), C.restFor(poly, 3), C.restFor(poly)], [90, 120, 150, 120]);
-assert.deepStrictEqual([C.restFor(iso, 1), C.restFor(iso, 3)], [60, 105]);   // jamais sous 60 s
-assert.strictEqual(C.restFor({ ...iso, restAdj: -45 }, 1), 60);
-assert.strictEqual(C.restFor({ ...poly, restAdj: 60 }, 3), 180);            // plafond 3 min
+assert.deepStrictEqual([C.restFor(poly, 1), C.restFor(poly, 2), C.restFor(poly, 3), C.restFor(poly)], [110, 120, 140, 120]);
+assert.deepStrictEqual([C.restFor(iso, 1), C.restFor(iso, 3)], [65, 95]);
+assert.strictEqual(C.restFor({ ...iso, restBase: 60 }, 1), 60);                   // jamais sous 1 min
+assert.strictEqual(C.restFor({ ...poly, restBase: 170 }, 3), 180);           // plafond 3 min
+assert.strictEqual(C.restFor({ ...poly, restBase: 60 }, 2), 75);             // polyarticulaire : 1:15 minimum
 // une série de 8 reps dure ~39 s : validations espacées de 39 + repos réel
 const at = (secs) => secs.reduce((a, s) => [...a, a[a.length - 1] + s * 1000], [0]).map((x) => x + 1e12);
 const mk = (restReal, feels, prop = 120, reps = 8) => at(restReal.map((r) => r + reps * 3 + 15)).map((t, i) => ({ done: true, reps, at: t, rest: prop, feel: feels[i] }));
@@ -70,8 +71,8 @@ console.log('repos OK');
 // ---------- très difficile, repos mesuré par ▶, fatigue, moyennes ----------
 assert.strictEqual(C.next(e, T(40, 10), R(40, 11, 4), ctx(stack)).reps, 10);           // échec : on garde la cible
 assert.ok(C.next(e, T(40, 10), R(40, 7, 4), ctx(stack)).deload);
-assert.strictEqual(C.restFor(poly, 4), 180);
-assert.strictEqual(C.restFor(poly, 2, [3, 3, 4, 2]), 135);                              // séance dure : +15 s
+assert.strictEqual(C.restFor(poly, 4), 160);
+assert.strictEqual(C.restFor(poly, 2, [3, 3, 4, 2]), 130);                              // séance dure : +10 s
 assert.strictEqual(C.restFor(poly, 2, [1, 2, 3]), 120);
 const a1 = { done: true, reps: 8, at: 1e12, rest: 120, feel: 2 }, b1 = { done: true, reps: 8, start: 1e12 + 95e3, at: 1e12 + 130e3, feel: 2 };
 assert.strictEqual(C.realRest(poly, a1, b1), 95);                                        // chronométré : start − validation précédente
@@ -81,3 +82,11 @@ console.log('repos v2 OK');
 // repos écourté (70 s pour 140 proposées) puis série dure : pas d'allongement du repos proposé
 assert.strictEqual(C.analyzeRest(poly, mk([70, 75], [2, 3, 3], 140)).delta, 0);
 console.log('repos v3 OK');
+
+// repos habituel appris : médiane des repos chronométrés (+20 s quand la série suivante a coincé)
+const timed = (rests, feels) => { let t = 1e12; return feels.map((f, i) => { const r = { done: true, reps: 10, feel: f, rest: 120 }; if (i) { t += rests[i - 1] * 1000; r.start = t; t += 40000; } else t += 40000; r.at = t; return r; }); };
+const hist = [{ date: '2026-10-01', exos: { x: { sets: timed([65, 70, 60], [2, 2, 2, 2]) } } }, { date: '2026-10-03', exos: { x: { sets: timed([62, 64], [2, 3, 2]) } } }];
+assert.strictEqual(C.personalRest({ id: 'x', name: 'Développé couché', mode: 'reps' }, hist), 75);   // 60 64 65 70 82(62+20) → médiane 65 → plancher polyarticulaire 1:15
+assert.strictEqual(C.personalRest({ id: 'x', name: 'Curl', mode: 'reps' }, hist.slice(0, 1)), 65);
+assert.strictEqual(C.personalRest({ id: 'y', name: 'Curl', mode: 'reps' }, hist), null);
+console.log('repos personnel OK');

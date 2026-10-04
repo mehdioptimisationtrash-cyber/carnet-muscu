@@ -1,6 +1,6 @@
 # carnet-muscu — INDEX
 
-> Dernière analyse : 2026-10-01
+> Dernière analyse : 2026-10-04
 
 Carnet de musculation personnel de Mehdi, en PWA installable sur iPhone, sauvegardé dans une feuille Google Sheets via un script Apps Script. HTML/CSS/JS vanilla, sans framework, hébergé sur GitHub Pages (gratuit).
 
@@ -23,6 +23,7 @@ Carnet de musculation personnel de Mehdi, en PWA installable sur iPhone, sauvega
 | `sw.js` | service worker : cache des fichiers statiques (réseau d'abord pour les pages), jamais les appels Google ; bump `CACHE_VERSION` à chaque déploiement |
 | `manifest.webmanifest`, `icons/` | PWA (`standalone`, icônes 192/512/apple-touch 180 générées depuis 🏋️) |
 | `apps-script/Code.gs` | script Google (v6 : + `syncAssiette` toutes les 3 h → onglet `macros`, `installerAssiette()` à lancer une fois) à coller dans la feuille : `doGet` renvoie l'état, `doPost` l'écrit (onglets `state`, `historique`, `exercices`, `nutrition`, `pas`) ; accepte aussi un POST « raccourci » `{token, steps, date?}` sans `state`, ou `{token, iphone, montre}` → max |
+| `tools/test_plan.js`, `tools/e2e_restbig.py` | progression par exercice sur les vrais cas, gros chrono |
 | `tools/test_injury.js`, `tools/e2e_injury.py` | blessures, ▶ par série, moyennes de repos, relecture de la feuille |
 | `tools/test_coach.js`, `tools/e2e_coach.py` | coach : règles de progression, pop-up ressenti, bilan |
 | `tools/e2e_assiette.py` | macros Assiette dans le Journal / stats, jamais renvoyées, relecture |
@@ -93,6 +94,13 @@ Déploiement : `git push` (Pages sur `main`, racine). Penser à `CACHE_VERSION` 
 - **À la demande (2026-09-22)** : bouton « 📲 Actualiser depuis Santé » (`#stepsRun`, iOS seulement) → `Steps.runShortcut()` navigue vers `shortcuts://run-shortcut?name=Muscu Pas` (`settings.stepsShortcut` pour renommer), pose `sessionStorage carnet-muscu-steps-await` ; au retour (`visibilitychange`), `refreshAfterShortcut()` relit la feuille à 0/4/10 s et toast le résultat. Le pont `shortcuts://` fonctionne ici : c'est l'action « Démarrer l'exercice » qui est réservée à la montre, pas le lancement. Couture de test : `window.__shortcutLog`.
 - **Relecture** : `Steps.refresh()` sur `visibilitychange` (≤ 1×/min, GET silencieux `Sync.load(true)`) fusionne les pas de la feuille via `App.absorb(patch)` (nouvelle passerelle : met à jour l'état + cache + rendu **sans** nouvelle `rev` ni sauvegarde). Bouton « ↻ Relire la feuille » dans la feuille de saisie.
 - **UI** : jauge 🚶 cliquable dans la carte du jour (`#stepsGauge`, classe `.gauge-btn`), marque 🚶 dans le calendrier si objectif atteint, recap « 🚶 N pas », objectif dans ⚙︎ Réglages (`settings.stepsGoal`, défaut 10 000 — demandé par Mehdi le 2026-09-22 ; aucune valeur n'était encore écrite dans la feuille), tuile « Pas / jour (7 j) », axe Marche (3 niveaux), graphique 14 jours, badge « 7 jours de marche à l'objectif ». « Remettre à zéro » écrit 0 (pas de suppression de ligne côté feuille). SW v12.
+
+## Progression par exercice, repos appris, gros chrono en haut (2026-10-04, demande de Mehdi : « propositions pas pertinentes »)
+- Constat : progression série par série → cibles incohérentes (« 36×7 · 30×15 · 36×7 ») et échec = même cible (poulie triceps 02/10 : 18×10/10/7 puis 14×10, on redemandait 18×14).
+- **`Coach.plan(e, T, res, {options})`** remplace `Coach.next` dans `finishSession` : une charge × reps identique pour toutes les séries, décidée sur la **moyenne des smileys**, le **% de reps faites** (séries non finies comprises, sauf arrêt douleur) et le **1RM du jour** (Epley corrigé du RIR, moitié la plus faible des séries). Échec net (< 85 % des reps, une série ratée de ≥ 3, ou série non finie avec moyenne ≥ 3) ou 2e petit échec → recalé sur la force du jour (charge la plus lourde qui laisse ≥ repMin). Réussi : moyenne ≤ 1,6 → +2 reps, ≤ 2,4 → +1, sinon on consolide ; au-delà de repMax → charge choisie par la force (peut sauter un cran), plaque trop loin → reps jusqu'à 20. Pyramides : reps calées sur la charge la plus fréquente. `options` = pile ou crans (`chargeOpts`). Bilan : 🧠 pourquoi pour chaque exo ; échecs : « Retenter la même cible » / « Garder ce que j'ai fait ». Test : `tools/test_plan.js` (vrais cas de Mehdi).
+- **Repos** : `e.restBase` = médiane des repos chronométrés (▶) sur l'exo (+20 s quand la série suivante a coincé), ≥ 3 mesures, recalculé à chaque fin de séance (`Coach.personalRest`) ; proposition = restBase (sinon repère 2:00 / 1:15) + ressenti (😄 −10, 😣 +20, 🥵 +40) + fatigue (+10), plancher 1:15 poly / 1:00 iso. `restAdj` abandonné.
+- **Gros chrono en haut** (`#restBig`, `pointer-events: none` sauf ses boutons) : temps en 52 px, barre, « ▶ Série suivante » (= `startSet` sur la prochaine série de l'exo en cours), ✕ ; à zéro il passe au vert et compte le dépassement. Test : `tools/e2e_restbig.py`.
+- Données 04/10 : toutes les cibles recalculées par `plan` depuis la dernière séance (cibles réellement demandées quand connues ; exos blessés : dernière séance avant la blessure ; élévation frontale et leg press inchangées), `restBase` appris.
 
 ## ▶ par série, 🥵 très difficile, blessures (2026-10-01, demande de Mehdi)
 - **▶ Démarrer la série** (`startSet`) : bouton rond devant la prochaine série de chaque exo en séance ; coupe le repos, pose `results[i].start`. Repos réel = `start − at` de la série précédente (sinon estimation). `Coach.restStats` → Stats « ⏱️ Temps de repos — 30 jours » (global, poly/iso, après chaque ressenti, par exo, % chronométrés). Constat du 29/09 : repos « mesurés » de 35–49 s = validations groupées → d'où le ▶.

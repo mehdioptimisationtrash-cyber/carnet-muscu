@@ -53,7 +53,7 @@ with sync_playwright() as p:
     pg.clock.run_for(40_000); pg.click("#s-dc-1"); pg.click("text=/Réussie/"); pg.click("#feel-2")
     st = pg.evaluate("window.App.state.session.results.dc")
     check(round((st[1]["start"] - st[0]["at"]) / 1000) == 100, "repos réel chronométré = 100 s")
-    check(st[0]["rest"] == 180, f"repos proposé après 🥵 sur polyarticulaire = 3:00 ({st[0]['rest']})")
+    check(st[0]["rest"] == 160, f"repos proposé après 🥵 sur polyarticulaire = 2:40 ({st[0]['rest']})")
     check(st[0]["charge"] == 30, "développé couché allégé (indirect) : 70 % de 40 → 30 kg")
     # douleur sur l'exercice blessé
     pg.click("#go-ef-0"); pg.click("#s-ef-0"); pg.click("text=/Réussie/")

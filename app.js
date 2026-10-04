@@ -170,8 +170,13 @@
   const allChallenges = () => dayExos().filter(e => !injuryOf(e)).map(e => ({ e, cs: challengesOf(e) })).filter(x => x.cs.length);
   const potentialXp = () => XP.session + dayExos().reduce((a, e) => a + e.sets.length * (XP.set + XP.hit), 0) + allChallenges().reduce((a, x) => a + x.cs.length * XP.challenge, 0);
 
-  // progression auto-régulée par le ressenti de chaque série (😄 / 🙂 / 😣) : voir coach.js
-  const nextTarget = (e, target, r) => Coach.next(e, target, r, { nextCharge: (c) => nextCharge(e, c), prevCharge: (c) => prevCharge(e, c), autoDeload: state.settings.autoDeload });
+  // progression par exercice (coach.js · plan) : charges possibles = la pile de la machine, sinon les crans autour de la charge actuelle
+  const chargeOpts = (e) => {
+    if (hasStack(e)) return [...e.stack];
+    const top = Math.max(...e.sets.map(t => typeof t.charge === 'number' ? t.charge : 0), e.step);
+    return Array.from({ length: Math.ceil(top * 2 / e.step) + 1 }, (_, k) => round1(k * e.step)).filter(v => v > 0);
+  };
+  const planFor = (e, T, res) => Coach.plan(e, T, res, { options: chargeOpts(e), autoDeload: state.settings.autoDeload });
   const feelEmoji = (r) => Coach.FEELS[r?.feel]?.e || '';
   // « dernière fois » lisible : charge × reps, groupé quand la charge ne change pas (40 kg × 8 · 8 · 8 😣)
   function fmtLast(e, sets) {
@@ -447,7 +452,7 @@
     commit({ ...state, session: { ...s, results, targets } });
     closeSheet();
     document.getElementById(`s-${exoId}-${i}`)?.classList.add('pop');
-    if (r.done) { startRest(r.rest); askFeel(exoId, i); }
+    if (r.done) { lastLogged = { exoId, i }; startRest(r.rest); askFeel(exoId, i); }
   }
   // juste après une série validée : 1 tap pour dire comment c'était (reps en réserve) — le coach s'en sert pour la cible suivante
   function askFeel(exoId, i) {
@@ -658,22 +663,45 @@
         } }),
         el('button', { class: 'btn good big', type: 'button', text: 'Non, terminer la séance', onclick: tryFinish })));
   });
-  let restStart = 0, restTotal = 0;
+  // Chrono de repos : gros, en haut de l'écran (le téléphone est rangé dans la machine, le bas n'est pas visible).
+  // À zéro il ne disparaît pas : il passe au vert et compte le dépassement (+0:12) jusqu'au ▶ de la série suivante.
+  let restStart = 0, restTotal = 0, restBuzzed = false, lastLogged = null;
+  const fmtRest = (sec) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+  function nextSetRef() {
+    const res = state.session?.results; if (!res) return null;
+    const pend = (id) => (res[id] || []).findIndex(r => r.done === null);
+    if (lastLogged && pend(lastLogged.exoId) >= 0) return { exoId: lastLogged.exoId, i: pend(lastLogged.exoId) };
+    const e = state.exos.find(x => pend(x.id) >= 0);
+    return e ? { exoId: e.id, i: pend(e.id) } : null;
+  }
+  function tickRest() {
+    const ms = restEnd - Date.now(), over = ms <= 0;
+    const sec = Math.ceil(Math.abs(ms) / 1000);
+    const txt = over ? `+${fmtRest(Math.floor(-ms / 1000))}` : fmtRest(sec);
+    $('#restTxt').textContent = over ? 'Go !' : txt;
+    $('#restBigTxt').textContent = txt;
+    $('#restBigLabel').textContent = over ? 'C’est reparti' : `Repos · ${fmtRest(restTotal)} proposé`;
+    $('#restBig').classList.toggle('over', over);
+    $('#restBigBar').style.width = `${over ? 100 : Math.round((1 - ms / (restTotal * 1000)) * 100)}%`;
+    $('#rest').querySelector('.ring').style.setProperty('--p', `${over ? 100 : Math.round((1 - ms / (restTotal * 1000)) * 100)}%`);
+    if (over && !restBuzzed) { restBuzzed = true; try { navigator.vibrate?.([200, 100, 200]); } catch {} }
+  }
   function startRest(total = state.settings.rest) {
     stopRest();
-    restStart = Date.now(); restTotal = total;
+    restStart = Date.now(); restTotal = total; restBuzzed = false;
     restEnd = restStart + total * 1000;
-    $('#rest').hidden = false;
-    restTimer = setInterval(() => {
-      const left = Math.max(0, Math.ceil((restEnd - Date.now()) / 1000));
-      $('#restTxt').textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
-      $('#rest').querySelector('.ring').style.setProperty('--p', `${100 - Math.round((left / restTotal) * 100)}%`);
-      if (left <= 0) { stopRest(); $('#restTxt').textContent = 'Go !'; $('#rest').hidden = false; try { navigator.vibrate?.([200, 100, 200]); } catch {} setTimeout(() => { if (!restTimer) $('#rest').hidden = true; }, 4000); }
-    }, 250);
+    const nx = nextSetRef(), ne = nx && state.exos.find(x => x.id === nx.exoId);
+    $('#restBigNext').textContent = ne ? `${ne.name} · S${nx.i + 1}` : 'Série suivante';
+    $('#restBigGo').hidden = !nx;
+    $('#rest').hidden = false; $('#restBig').hidden = false; document.body.classList.add('resting');
+    tickRest();
+    restTimer = setInterval(tickRest, 250);
   }
-  function adjustRest(total) { if (!restTimer) return; restTotal = total; restEnd = restStart + total * 1000; }
-  function stopRest() { clearInterval(restTimer); restTimer = null; $('#rest').hidden = true; }
+  function adjustRest(total) { if (!restTimer) return; restTotal = total; restEnd = restStart + total * 1000; tickRest(); }
+  function stopRest() { clearInterval(restTimer); restTimer = null; $('#rest').hidden = true; $('#restBig').hidden = true; document.body.classList.remove('resting'); }
   $('#rest').addEventListener('click', stopRest);
+  $('#restBigClose').addEventListener('click', stopRest);
+  $('#restBigGo').addEventListener('click', () => { const nx = nextSetRef(); if (nx) startSet(nx.exoId, nx.i); else stopRest(); });
 
   function finishSession() {
     stopRest();
@@ -690,7 +718,8 @@
       const res = raw.map(r => r.done === null ? { ...r, done: false } : r);
       const soft = light || !!injuryOf(e);   // séance légère ou reprise après blessure : on maintient, cibles d'avant gardées
       const chal = soft ? [] : challengesOf(e, T);
-      const next = soft ? e.sets.map(t => ({ ...t })) : e.sets.map((t, i) => nextTarget(e, T[i] || t, res[i]));
+      const pl = soft ? null : planFor(e, T, res);
+      const next = soft ? e.sets.map(t => ({ ...t })) : pl.sets;
       let best = e.best, progressed = false;
       const failedIdx = [];
       res.forEach((r, i) => {
@@ -702,26 +731,25 @@
         if (r.reps > t.reps) xp += XP.beat;
         const c = chal.find(x => x.i === i);
         if (c) { chalTotal++; if (r.reps >= t.reps && (typeof t.charge !== 'number' || r.charge >= t.charge)) { chalWon++; xp += XP.challenge; } }
-        if (next[i]?.up) { xp += XP.palier; if (!paliers.includes(e.name)) paliers.push(e.name); }
         if (typeof r.charge === 'number') volume += r.charge * r.reps;
         const v = e1rm(r.charge, r.reps);
         if (v && !soft && (!best || v > best.e1rm)) { best = { e1rm: v, charge: r.charge, reps: r.reps, date }; if (!prs.includes(e.name)) prs.push(e.name); }
-        if (next[i] && (next[i].reps !== t.reps || next[i].charge !== t.charge)) progressed = true;
+        if (next[i] && (next[i].reps > t.reps || (typeof next[i].charge === 'number' && next[i].charge > t.charge))) progressed = true;
       });
       if (prs.includes(e.name)) xp += XP.pr;
+      if (pl?.up) { xp += XP.palier; paliers.push(e.name); }
       const fmtSets = (arr) => arr.map(t => `${t.reps}${isTemps(e) ? 's' : '×' + fmtKg(t.charge)}`).join(' · ');
       const before = fmtSets(e.sets), after = fmtSets(next);
-      const whys = [...new Set(next.filter((n, i) => res[i]?.done).map(n => n.why).filter(Boolean))];
-      if (before !== after) changes.push({ name: e.name, before, after, up: next.some(n => n.up), deload: next.some(n => n.deload), why: whys.join(' · ') });
-      else if (!soft && res.some(r => r.done && Coach.isHard(r.feel))) changes.push({ name: e.name, before, after, same: true, why: whys.join(' · ') });
-      if (failedIdx.length) failed.push({ id: e.id, name: e.name, idx: failedIdx, res, T, retry: next.map(({ up, deload, why, ...t }) => t), auto: next.some(n => n.deload), down: downLabel(e), prev: (c) => prevCharge(e, c), temps: isTemps(e) });
+      const why = pl?.why || '';
+      if (before !== after) changes.push({ name: e.name, before, after, up: !!pl?.up, deload: !!pl?.deload, why });
+      else if (!soft) changes.push({ name: e.name, before, after, same: true, why });
+      if (failedIdx.length || (pl?.deload)) failed.push({ id: e.id, name: e.name, idx: failedIdx, res, T, coach: next, auto: !!pl?.deload, temps: isTemps(e) });
       const rest = Coach.analyzeRest(e, res, T);
       if (rest) restLog.push({ e, an: rest });
       exosLog[e.id] = { name: e.name, sets: res, ...(rest ? { rest: { prop: rest.prop, real: rest.real } } : {}) };
       const done = res.some(r => r.done);
-      const restAdj = rest && state.settings.restAuto !== false ? Coach.nextRestAdj(e, rest.delta) : e.restAdj;
-      if (soft) return { ...e, ...(restAdj !== undefined ? { restAdj } : {}) };
-      return { ...e, ...(restAdj !== undefined ? { restAdj } : {}), sets: next.map(({ up, deload, why, ...t }) => t), last: res, best, stalled: done ? (progressed ? 0 : e.stalled + 1) : e.stalled };
+      if (soft) return e;
+      return { ...e, sets: next, last: res, best, stalled: done ? (progressed ? 0 : e.stalled + 1) : e.stalled };
     });
     if (light) xp = Math.round(xp * XP.light);
     const cardio = ['avant', 'apres'].map(pos => { const c = s.cardio?.[pos]; const sec = cardioSec(c); return sec > 0 ? { pos, type: c.type, sec } : null; }).filter(Boolean);
@@ -738,7 +766,9 @@
       history = [...state.history, entry].slice(-HISTORY_MAX);
     }
     const lvlBefore = level(state.xp);
-    const nextState = { ...state, exos, session: null, xp: state.xp + xp, history };
+    // repos habituel de chaque exercice, réappris sur ses séances chronométrées (null = pas encore assez de mesures)
+    const exosRest = exos.map(e => { const b = Coach.personalRest(e, history); return b ? { ...e, restBase: b } : e; });
+    const nextState = { ...state, exos: exosRest, session: null, xp: state.xp + xp, history };
     commit(nextState);
     showSummary(entry, changes, failed, lvlBefore, level(nextState.xp), streak, continuation, cardio, restLog);
     if (!light) confetti();
@@ -782,20 +812,20 @@
     // défis ratés : la décision t'appartient
     const adj = el('div');
     if (failed.length) {
-      adj.append(el('h4', { class: 'sec', text: 'Défis ratés — que fait-on la prochaine fois ?' }));
+      adj.append(el('h4', { class: 'sec', text: 'Séries ratées — la proposition du coach est déjà appliquée' }));
+      const fmt = (sets) => [...new Set(sets.map(t => `${fmtKg(t.charge)} × ${t.reps}`))].join(' / ');
       for (const f of failed) {
-        const detail = f.idx.map(i => `S${i + 1} ${f.res[i].reps}/${f.T[i].reps}`).join(', ');
-        const block = el('div', { class: 'choice' }, el('b', { text: f.name }), el('small', { text: `${detail}${f.auto ? ' · recalibrage automatique appliqué (' + f.down + ' de moins)' : ''}` }));
+        const detail = f.res.map((r, i) => r.done ? `S${i + 1} ${r.reps}/${f.T[i]?.reps ?? '?'}${feelEmoji(r)}` : `S${i + 1} non faite`).join(', ');
+        const block = el('div', { class: 'choice' }, el('b', { text: f.name }), el('small', { text: `${detail} → prochaine fois ${fmt(f.coach)}` }));
         const row = el('div', { class: 'row3' });
         const pick = (label, fn) => el('button', { class: 'btn', type: 'button', text: label, onclick: () => { commit(updExo(f.id, x => ({ ...x, sets: fn(x) }))); row.replaceChildren(el('span', { class: 'picked', text: `✓ ${label}` })); } });
         row.append(
-          pick(f.auto ? 'Non, je retente à la même charge' : 'Retenter (même cible)', (x) => f.auto ? f.T.map((t, i) => ({ charge: t.charge, reps: t.reps, fails: f.idx.includes(i) ? (t.fails || 0) + 1 : 0 })) : f.retry),
-          ...(f.temps ? [] : [pick(`Alléger d’${f.down === 'une plaque' ? 'une plaque' : 'un cran (−' + f.down + ')'}`, (x) => f.T.map(t => ({ charge: f.prev(t.charge) ?? t.charge, reps: t.reps, fails: 0 })))]),
-          pick('Garder ce que j’ai fait', (x) => f.T.map((t, i) => f.res[i].done ? { charge: f.res[i].charge, reps: f.res[i].reps, fails: 0 } : { charge: t.charge, reps: t.reps, fails: 0 })),
+          pick('Retenter la même cible', () => f.T.map(t => ({ charge: t.charge, reps: t.reps, fails: (t.fails || 0) + 1 }))),
+          pick('Garder ce que j’ai fait', () => f.T.map((t, i) => f.res[i]?.done ? { charge: f.res[i].charge, reps: f.res[i].reps, fails: 0 } : { charge: t.charge, reps: t.reps, fails: 0 })),
         );
         block.append(row); adj.append(block);
       }
-      adj.append(el('p', { class: 'hint', text: 'Conseil : rater un défi 1 fois est normal, surtout en déficit calorique. Retente d’abord ; allège seulement si ça coince 2 fois.' }));
+      adj.append(el('p', { class: 'hint', text: 'Le coach recale la cible sur ta force réelle du jour (reps faites, séries non finies, moyenne des smileys). Tu peux préférer retenter la même cible ou garder exactement ce que tu as fait.' }));
     }
     const wk = weekCount(), goal = state.settings.weeklyGoal;
     openSheet(el('div', { class: 'summary' },

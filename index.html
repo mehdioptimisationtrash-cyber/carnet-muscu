@@ -72,6 +72,18 @@
   </div>
 </div>
 
+<!-- chrono de repos : en haut (téléphone rangé dans la machine), gros, mais ne bloque que ses propres boutons -->
+<div class="rest-big" id="restBig" hidden aria-live="polite">
+  <div class="rb-card">
+    <div class="rb-bar"><i id="restBigBar"></i></div>
+    <div class="rb-row">
+      <div class="rb-main"><span class="rb-label" id="restBigLabel">Repos</span><span class="rb-time tnum" id="restBigTxt">1:30</span></div>
+      <button class="rb-go" id="restBigGo" type="button">▶<small id="restBigNext">Série suivante</small></button>
+      <button class="rb-close" id="restBigClose" type="button" aria-label="Masquer le chrono">✕</button>
+    </div>
+  </div>
+</div>
+
 <div id="overlay"></div>
 
 <script src="./config.js"></script>

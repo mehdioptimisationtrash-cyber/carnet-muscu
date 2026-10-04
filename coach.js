@@ -70,6 +70,85 @@
     return { charge: up, reps: newReps, fails: 0, up: true, why: `palier : ${up} kg × ${newReps} (estimé depuis ta force du jour)` };
   }
 
+  /* ---------- progression par EXERCICE (2026-10-04) ----------
+   * Remplace la progression série par série (cibles incohérentes : « 36×7 · 30×15 · 36×7 », échec = même cible).
+   * Un coach prescrit une charge × reps pour toutes les séries de travail, d'après :
+   *  - la moyenne des ressentis de l'exercice (😄 1 · 🙂 2 · 😣 3 · 🥵 4) ;
+   *  - la réussite globale : reps faites / reps demandées, séries non finies comprises ;
+   *  - la force réelle du jour : 1RM estimé (Epley corrigé du RIR) sur la moitié la plus faible des séries
+   *    (les dernières séries, fatiguées, sont celles qui limitent des séries identiques).
+   */
+  const PLAN = { easy: 1.6, ok: 2.4, hard: 3.4, bigMissRatio: 0.85, bigMissReps: 3, rir: 1.5 };
+  const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+  const mode = (a) => { const c = new Map(); a.forEach((v) => c.set(v, (c.get(v) || 0) + 1)); return [...c].sort((x, y) => y[1] - x[1])[0][0]; };
+
+  /**
+   * @param e exercice { mode, repMin, repMax, sets }
+   * @param T cibles de la séance (par série)
+   * @param res résultats { charge, reps, done, feel } (done=false = série non faite / non finie)
+   * @param ctx { options: charges possibles triées (pile ou crans), autoDeload }
+   * @returns { sets: [{charge, reps, fails}] identiques, why, up?, deload?, avgFeel, ratio }
+   */
+  function plan(e, T, res, ctx) {
+    const n = Math.max(1, e.sets.length);
+    const keep = (why) => ({ sets: e.sets.map((t) => ({ charge: t.charge, reps: t.reps, fails: t.fails || 0 })), why });
+    const done = res.map((r, i) => ({ r, t: T[i] || T[T.length - 1] })).filter((x) => x.r && x.r.done && x.t);
+    if (!done.length) return keep('pas faite : même cible');
+    // séries non faites / non finies après la première série faite (hors arrêt pour douleur) : elles comptent comme des reps manquées
+    const first = res.findIndex((x) => x && x.done);
+    const skippedIdx = res.map((r, i) => (r && r.done === false && T[i] && !r.pain && i > first ? i : -1)).filter((i) => i >= 0);
+    const skipped = skippedIdx.length;
+    const feels = done.map((x) => x.r.feel || 2);
+    const avgFeel = Math.round(mean(feels) * 10) / 10;
+    const asked = done.reduce((a, x) => a + x.t.reps, 0) + skippedIdx.reduce((a, i) => a + T[i].reps, 0);
+    const ratio = Math.round(done.reduce((a, x) => a + Math.min(x.r.reps, x.t.reps), 0) / asked * 100) / 100;
+    const missBy = Math.max(0, ...done.map((x) => x.t.reps - x.r.reps));
+    const bigMiss = ratio < PLAN.bigMissRatio || missBy >= PLAN.bigMissReps || skipped > 0 && avgFeel >= 3;
+    const smallMiss = !bigMiss && (missBy > 0 || skipped > 0);
+    const prevFails = Math.max(0, ...T.map((t) => t.fails || 0));
+    // charge de travail = la plus fréquente ; une série isolée plus lourde/légère (pyramide) ne fixe pas les reps de toutes
+    const C0 = mode(done.map((x) => x.t.charge));
+    const main = done.filter((x) => x.t.charge === C0);
+    const R0 = Math.min(...main.map((x) => x.t.reps));                    // reps demandées (série la moins exigeante)
+    const Rdone = Math.min(...main.map((x) => x.r.reps));                 // la série la plus faible fixe ce que tu tiens sur toutes
+    const uniform = (charge, reps, fails = 0) => Array.from({ length: n }, () => ({ charge, reps, fails }));
+    const step = e.mode === 'temps' ? TEMPS_STEP : 1;
+    const add = avgFeel <= PLAN.easy ? 2 * step : avgFeel <= PLAN.ok ? step : 0;
+    const label = (c, r) => `${typeof c === 'number' ? c + ' kg × ' : ''}${r}${e.mode === 'temps' ? ' s' : ''}`;
+
+    // ---- sans charge chiffrée (poids du corps, gainage) : on joue sur les reps / la durée
+    if (typeof C0 !== 'number' || C0 <= 0 || e.mode === 'temps') {
+      const cap = (r) => Math.max(1, Math.min(r, e.repMax));
+      if (bigMiss) { const r = cap(Math.round(mean(done.map((x) => x.r.reps)))); return { sets: uniform(C0, r), why: `recalé sur ce que tu as tenu : ${label(C0, r)}`, deload: true, avgFeel, ratio }; }
+      if (smallMiss) return prevFails >= 1 ? { sets: uniform(C0, cap(Rdone)), why: `raté 2 fois : on se cale sur ${label(C0, Rdone)}`, deload: true, avgFeel, ratio } : { sets: uniform(C0, R0, prevFails + 1), why: 'presque : on retente la même cible', avgFeel, ratio };
+      const r = cap(Rdone + add);
+      return { sets: uniform(C0, r), why: add ? `moyenne ${avgFeel} → +${add}${e.mode === 'temps' ? ' s' : ' rep' + (add > 1 ? 's' : '')}` : `moyenne ${avgFeel} (dur) : on consolide`, avgFeel, ratio };
+    }
+
+    // ---- avec charge : force du jour → reps tenables à chaque charge possible
+    const e1 = done.map((x) => e1rmFelt(x.r.charge, x.r.reps, x.r.reps < x.t.reps ? Math.max(x.r.feel || 3, 3) : x.r.feel)).filter(Boolean).sort((a, b) => a - b);
+    const E = mean(e1.slice(0, Math.ceil(e1.length / 2)));
+    const repsFor = (c) => Math.floor(repsAt(E, c, PLAN.rir));
+    const opts = (ctx.options || [C0]).filter((c) => typeof c === 'number' && c > 0);
+    const best = (minReps) => [...opts].reverse().find((c) => repsFor(c) >= minReps);   // la charge la plus lourde qui laisse au moins minReps
+    if (bigMiss || (smallMiss && prevFails >= 1 && ctx.autoDeload !== false)) {
+      const c = repsFor(C0) >= e.repMin ? C0 : best(e.repMin) ?? opts[0];
+      const r = Math.max(Math.min(e.repMin, repsFor(c)), Math.min(repsFor(c), e.repMax));
+      return { sets: uniform(c, Math.max(1, r)), why: `${bigMiss ? 'échec net' : 'raté 2 fois'} (${Math.round(ratio * 100)} % des reps, moyenne ${avgFeel}) → recalé sur ta force du jour : ${label(c, r)}`, deload: c < C0 || r < R0, avgFeel, ratio };
+    }
+    if (smallMiss) return { sets: uniform(C0, R0, prevFails + 1), why: `presque (${Math.round(ratio * 100)} % des reps) : on retente ${label(C0, R0)}`, avgFeel, ratio };
+    if (avgFeel >= PLAN.hard) return { sets: uniform(C0, Rdone), why: `réussi mais moyenne ${avgFeel} (à l’échec) : on garde ${label(C0, Rdone)}`, avgFeel, ratio };
+    const r = Rdone + add;
+    if (r <= e.repMax) return { sets: uniform(C0, r), why: add ? `moyenne ${avgFeel} → +${add} rep${add > 1 ? 's' : ''} : ${label(C0, r)}` : `moyenne ${avgFeel} : on consolide ${label(C0, r)}`, avgFeel, ratio };
+    // haut de la plage : charge suivante, choisie par la force réelle (peut sauter un cran si c'était facile)
+    const up = best(e.repMin) ;
+    if (up !== undefined && up > C0) { const ru = Math.min(repsFor(up), e.repMax - 2); return { sets: uniform(up, Math.max(e.repMin, ru)), why: `palier : ${label(up, Math.max(e.repMin, ru))} (estimé depuis ta force du jour)`, up: true, avgFeel, ratio }; }
+    const next = opts.find((c) => c > C0);
+    if (next !== undefined && r < EXTENDED_MAX) return { sets: uniform(C0, Math.min(r, EXTENDED_MAX)), why: `charge suivante trop loin (+${Math.round((next - C0) / C0 * 100)} %) : on monte les reps jusqu’à ${EXTENDED_MAX}`, avgFeel, ratio };
+    if (next !== undefined) { const ru = Math.max(e.repMin - 2, repsFor(next)); return { sets: uniform(next, ru), why: `palier : ${label(next, ru)}`, up: true, avgFeel, ratio }; }
+    return { sets: uniform(C0, Math.min(r, EXTENDED_MAX)), why: 'haut de la pile : on continue en reps', avgFeel, ratio };
+  }
+
   /** Résumé d'une série de ressentis : { n, easy, mid, hard, trend } — trend = la difficulté monte au fil des séries. */
   function feelStats(sets) {
     const f = (sets || []).filter((r) => r && r.done && FEELS[r.feel]).map((r) => r.feel);
@@ -115,22 +194,42 @@
    * un décalage par exercice (`e.restAdj`) selon le repos réellement pris et la réussite de la série suivante.
    */
   const REST = {
-    poly: { base: 120, min: 90, max: 180, label: 'polyarticulaire' },
+    poly: { base: 120, min: 75, max: 180, label: 'polyarticulaire' },
     iso: { base: 75, min: 60, max: 120, label: 'isolation' },
   };
-  const REST_FEEL = { 1: -30, 2: 0, 3: 30, 4: 60 };
-  const REST_FATIGUE = 15;   // séance déjà dure (≥ la moitié des séries à fond) : +15 s partout
+  // 2026-10-04 : ajustements resserrés (avant : −30/+30/+60 → 2:30–3:00 proposés pour ~1:05 réellement pris, et réussis)
+  const REST_FEEL = { 1: -10, 2: 0, 3: 20, 4: 40 };
+  const REST_FATIGUE = 10;   // séance déjà dure (≥ la moitié des séries à fond) : +10 s partout
+  const PERSONAL = { minSamples: 3, maxSamples: 12, hardBonus: 20 };
   const REST_ADJ = { step: 10, perSession: 20, min: -45, max: 60 };
   const POLY_RE = /couche|developpe|militaire|press|squat|souleve|deadlift|row|rowing|tirage|pulldown|traction|pull.?up|dips|fente|lunge|hip thrust|pompe|leg press|presse|chest|bench/;
   const norm = (x) => String(x || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
   const restKind = (e) => (e.mode === 'temps' ? 'iso' : e.restKind || (POLY_RE.test(norm(e.name)) ? 'poly' : 'iso'));
   const clampRest = (e, sec) => { const k = REST[restKind(e)]; return Math.round(Math.min(k.max, Math.max(k.min, sec)) / 5) * 5; };
-  /** Repos proposé après une série de `e`, selon le ressenti de cette série (non noté = moyen) et la fatigue de la séance. */
+  /**
+   * Repos proposé après une série de `e` : ton repos habituel sur cet exercice (`e.restBase`, appris), sinon le repère scientifique,
+   * + le ressenti de la série qu'on vient de finir + la fatigue de la séance. Jamais sous 1 min (1:15 en polyarticulaire).
+   */
   const restFor = (e, feel, sessionFeels = []) => {
     const rated = sessionFeels.filter((f) => FEELS[f]);
     const tired = rated.length >= 4 && rated.filter(isHard).length >= rated.length / 2 ? REST_FATIGUE : 0;
-    return clampRest(e, REST[restKind(e)].base + (e.restAdj || 0) + (REST_FEEL[feel] || 0) + tired);
+    return clampRest(e, (e.restBase || REST[restKind(e)].base) + (REST_FEEL[feel] || 0) + tired);
   };
+  /**
+   * Repos habituel d'un exercice, appris sur ses dernières séances chronométrées : médiane des repos réellement pris,
+   * +20 s pour ceux suivis d'une série dure ou ratée (ce repos-là était trop court). null tant qu'il y a moins de 3 mesures.
+   */
+  function personalRest(e, history) {
+    const samples = [];
+    for (const h of history) {
+      const x = h.exos?.[e.id]; if (!x) continue;
+      const an = analyzeRest(e, x.sets);
+      if (an) an.pairs.filter((p) => p.measured).forEach((p) => samples.push(p.real + (p.ok ? 0 : PERSONAL.hardBonus)));
+    }
+    const last = samples.slice(-PERSONAL.maxSamples).sort((a, b) => a - b);
+    if (last.length < PERSONAL.minSamples) return null;
+    return clampRest(e, last[Math.floor(last.length / 2)]);
+  }
   /** Repos réel entre la série a (validée à a.at) et la suivante b : mesuré si ▶ a été touché (b.start), sinon estimé. */
   const realRest = (e, a, b) => Math.round(b.start ? (b.start - a.at) / 1000 : (b.at - a.at) / 1000 - setSeconds(e, b));
   /** Durée estimée d'une série (exécution + mise en place), pour isoler le vrai repos entre deux validations. */
@@ -207,7 +306,7 @@
     return { all: fin(out.all), poly: fin(out.poly), iso: fin(out.iso), feel: Object.fromEntries(Object.entries(out.feel).map(([k, b]) => [k, fin(b)])), exo: Object.fromEntries(Object.entries(out.exo).map(([k, b]) => [k, fin(b)])), measured: out.all.n ? Math.round(out.measured / out.all.n * 100) : 0 };
   }
 
-  const api = { isHard, realRest, restStats, FEELS, TARGET_RIR, rirOf, e1rmFelt, repsAt, next, feelStats, advise, REST, restKind, restFor, analyzeRest, nextRestAdj, restAdvice, fmtSec };
+  const api = { personalRest, plan, PLAN, isHard, realRest, restStats, FEELS, TARGET_RIR, rirOf, e1rmFelt, repsAt, next, feelStats, advise, REST, restKind, restFor, analyzeRest, nextRestAdj, restAdvice, fmtSec };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.Coach = api;
 })(typeof window !== 'undefined' ? window : globalThis);
