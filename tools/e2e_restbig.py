@@ -9,7 +9,8 @@ BASE = "http://localhost:8000/"
 FAKE_URL = "https://script.google.com/macros/s/FAKE/exec"
 tri = {"id": "tr", "name": "Poulie triceps", "cat": "derriere", "mode": "reps", "step": 2, "repMin": 8, "repMax": 15, "stack": [14, 18, 23, 30],
        "sets": [{"charge": 18, "reps": 14}, {"charge": 18, "reps": 14}, {"charge": 18, "reps": 13}, {"charge": 18, "reps": 13}], "last": None, "best": None, "stalled": 0}
-store = {"state": {"v": 2, "rev": 1, "xp": 0, "settings": {}, "session": None, "weights": [], "exos": [tri], "history": []}}
+dc = {**tri, "id": "dc", "name": "Développé couché", "stack": [30, 35, 40, 45], "sets": [{"charge": 40, "reps": 9}] * 4}
+store = {"state": {"v": 2, "rev": 1, "xp": 0, "settings": {}, "session": None, "weights": [], "exos": [tri, dc], "history": []}}
 errors = []
 def fake(route, req):
     if req.method == "GET": body = {"ok": True, "v": 6, "state": store["state"]}
@@ -40,6 +41,8 @@ with sync_playwright() as p:
     for i, (c, r, f) in enumerate([(18, 10, 3), (18, 7, 4), (14, 10, 3)], start=1):
         if i > 1: pg.click("#restBigGo")
         pg.click(f"#s-tr-{i}"); pg.select_option("#fC", str(c)); pg.select_option("#fR", str(r)); pg.click("text=Valider ces valeurs"); pg.click(f"#feel-{f}")
+    check(pg.is_visible("#restBig") and not pg.is_visible("#restBigGo") and "Exercice fini" in pg.text_content("#restBigLabel"), "après la dernière série : pas de ▶ vers un autre exercice")
+    pg.click("#restBigClose")
     pg.click("#btnFinish"); pg.click("text=/Non, terminer/"); pg.wait_for_selector(".summary")
     sets = pg.evaluate("window.App.state.exos[0].sets")
     check(all(s["charge"] == 14 and 8 <= s["reps"] <= 13 for s in sets) and len({(s['charge'], s['reps']) for s in sets}) == 1, f"échec net → recalé sur la force du jour : {[(s['charge'], s['reps']) for s in sets]}")

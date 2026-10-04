@@ -667,12 +667,11 @@
   // À zéro il ne disparaît pas : il passe au vert et compte le dépassement (+0:12) jusqu'au ▶ de la série suivante.
   let restStart = 0, restTotal = 0, restBuzzed = false, lastLogged = null;
   const fmtRest = (sec) => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+  // série suivante du MÊME exercice seulement : après sa dernière série, Mehdi choisit lui-même la machine libre
   function nextSetRef() {
-    const res = state.session?.results; if (!res) return null;
-    const pend = (id) => (res[id] || []).findIndex(r => r.done === null);
-    if (lastLogged && pend(lastLogged.exoId) >= 0) return { exoId: lastLogged.exoId, i: pend(lastLogged.exoId) };
-    const e = state.exos.find(x => pend(x.id) >= 0);
-    return e ? { exoId: e.id, i: pend(e.id) } : null;
+    const res = state.session?.results; if (!res || !lastLogged) return null;
+    const i = (res[lastLogged.exoId] || []).findIndex(r => r.done === null);
+    return i >= 0 ? { exoId: lastLogged.exoId, i } : null;
   }
   function tickRest() {
     const ms = restEnd - Date.now(), over = ms <= 0;
@@ -680,7 +679,8 @@
     const txt = over ? `+${fmtRest(Math.floor(-ms / 1000))}` : fmtRest(sec);
     $('#restTxt').textContent = over ? 'Go !' : txt;
     $('#restBigTxt').textContent = txt;
-    $('#restBigLabel').textContent = over ? 'C’est reparti' : `Repos · ${fmtRest(restTotal)} proposé`;
+    const last = $('#restBig').classList.contains('last');
+    $('#restBigLabel').textContent = last ? (over ? 'Exercice fini · choisis le suivant' : `Exercice fini · repos ${fmtRest(restTotal)}`) : over ? 'C’est reparti' : `Repos · ${fmtRest(restTotal)} proposé`;
     $('#restBig').classList.toggle('over', over);
     $('#restBigBar').style.width = `${over ? 100 : Math.round((1 - ms / (restTotal * 1000)) * 100)}%`;
     $('#rest').querySelector('.ring').style.setProperty('--p', `${over ? 100 : Math.round((1 - ms / (restTotal * 1000)) * 100)}%`);
@@ -691,8 +691,9 @@
     restStart = Date.now(); restTotal = total; restBuzzed = false;
     restEnd = restStart + total * 1000;
     const nx = nextSetRef(), ne = nx && state.exos.find(x => x.id === nx.exoId);
-    $('#restBigNext').textContent = ne ? `${ne.name} · S${nx.i + 1}` : 'Série suivante';
+    $('#restBigNext').textContent = ne ? `${ne.name} · S${nx.i + 1}` : '';
     $('#restBigGo').hidden = !nx;
+    $('#restBig').classList.toggle('last', !nx);
     $('#rest').hidden = false; $('#restBig').hidden = false; document.body.classList.add('resting');
     tickRest();
     restTimer = setInterval(tickRest, 250);
