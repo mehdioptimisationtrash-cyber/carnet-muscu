@@ -3,8 +3,8 @@ const assert = require('assert');
 const C = require('../categories.js');
 const cases = {
   'Développé assis': 'devant', 'Pecs': 'devant', 'Leg press': 'devant', 'Gainage': 'devant', 'Crunch': 'devant',
-  'Développé millitaire': 'devant', 'Développé couché': 'devant', 'Haltères extérieurs': 'devant', 'Curl biceps': 'devant', 'Leg extension': 'devant', 'Squat': 'devant',
-  'Lat pulldown': 'derriere', 'Horizontal row': 'derriere', 'Leg curl': 'derriere', 'Oiseau': 'derriere', 'Bas du dos renversé': 'derriere',
+  'Développé millitaire': 'devant', 'Développé couché': 'devant', 'Curl biceps': 'devant', 'Leg extension': 'devant', 'Squat': 'devant',
+  'Lat pulldown': 'derriere', 'Haltères extérieurs': 'derriere', 'Horizontal row': 'derriere', 'Leg curl': 'derriere', 'Oiseau': 'derriere', 'Bas du dos renversé': 'derriere',
   'Poulie triceps': 'derriere', 'Poulie extension epaule': 'derriere', 'Extension triceps': 'derriere', 'Hip thrust': 'derriere', 'Élévations latérales': 'devant',
 };
 for (const [n, c] of Object.entries(cases)) assert.strictEqual(C.guessCat(n), c, n);

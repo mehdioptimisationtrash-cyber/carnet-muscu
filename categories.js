@@ -12,8 +12,8 @@
 
   // mots-clés testés dans l'ordre : le premier qui correspond gagne (« derrière » d'abord : « extension triceps » ≠ « leg extension »)
   const RULES = [
-    ['derriere', /tricep|dips|barre au front|kickback|\bdos\b|lomb|renverse|dorsa|lat\b|lats|pulldown|tirage|rowing|\brow\b|traction|pull.?up|souleve|deadlift|ischio|leg curl|curl jambe|hamstring|fess|glute|hip thrust|pont|oiseau|face pull|reverse fly|arriere|trapez|shrug|extension epaule/],
-    ['devant', /pec|couche|bench|chest|developpe|militaire|press|pompe|push|ecarte|butterfly|bicep|curl|quadri|squat|leg press|presse|leg extension|fente|lunge|abdo|crunch|gainage|planche|plank|releve de jambe|elevation|lateral|exterieur|mollet|calf/],
+    ['derriere', /tricep|dips|barre au front|kickback|\bdos\b|lomb|renverse|dorsa|lat\b|lats|pulldown|tirage|rowing|\brow\b|traction|pull.?up|souleve|deadlift|ischio|leg curl|curl jambe|hamstring|fess|glute|hip thrust|pont|oiseau|face pull|reverse fly|arriere|trapez|shrug|extension epaule|exterieur/],
+    ['devant', /pec|couche|bench|chest|developpe|militaire|press|pompe|push|ecarte|butterfly|bicep|curl|quadri|squat|leg press|presse|leg extension|fente|lunge|abdo|crunch|gainage|planche|plank|releve de jambe|elevation|lateral|mollet|calf/],
   ];
 
   /** @param {string} name @returns {'devant'|'derriere'|null} */
